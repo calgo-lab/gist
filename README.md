@@ -1,6 +1,8 @@
 # Groundwater Level Interpolation 
 This project is building a pipeline for spatiotemporal interpolation of groundwater levels.
 
+This Readme is always gonna show the current state of the project.
+
 The first step is recreating the baseline from Kunz et al. (2024), accessible here:
 https://doi.org/10.5194/egusphere-2024-3484
 
