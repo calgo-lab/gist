@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import yaml
 
 
-# Plots
+### Plots
 
 def bar_years_full_range(counts, title, outpath, tick_every):
     counts = counts.copy()
@@ -43,7 +43,7 @@ def plot_start_end_active(df, time_col, id_col, figures_dir):
     plt.tight_layout(); plt.savefig(figures_dir / "active_wells_per_week.png", dpi=200); plt.close()
 
 
-# Main
+### Main
 
 def run(cfg_path):
     cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
