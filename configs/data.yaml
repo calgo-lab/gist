@@ -1,0 +1,6 @@
+data_path: "/Users/robert/Documents/MasterDataScience/MasterThesis/data/gws_bb_complete_hyras_1000.parquet"
+metadata_path: "/Users/robert/Documents/MasterDataScience/MasterThesis/data/meta_LFU_info.csv"
+data_join_key: "id"
+meta_join_key: "id"
+time_col: "datum"
+value_col: "gws"
