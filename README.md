@@ -15,11 +15,13 @@ That first step is forecasting of groundwater levels.
 # macOS / Linux
 python3 -m venv .venv
 source .venv/bin/activate
+python -m pip install -U pip setuptools wheel
 pip install -r requirements.txt
 
 # Windows
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
+python -m pip install -U pip setuptools wheel
 pip install -r requirements.txt
 ```
 
