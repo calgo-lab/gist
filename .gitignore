@@ -212,3 +212,5 @@ __marimo__/
 /outputs/*
 /predictions/*
 *.ckpt
+.DS_Store
+.DS_Store
