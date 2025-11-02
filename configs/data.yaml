@@ -1,6 +1,16 @@
-data_path: "/Users/robert/Documents/MasterDataScience/MasterThesis/data/gws_bb_complete_hyras_1000.parquet"
-metadata_path: "/Users/robert/Documents/MasterDataScience/MasterThesis/data/meta_LFU_info.csv"
-data_join_key: "id"
-meta_join_key: "id"
-time_col: "datum"
-value_col: "gws"
+# PVC-resident files
+full_raw_path: /storage/data/gws_bb_complete_hyras_1000.parquet
+metadata_path: /storage/data/meta_LFU_info.csv
+full_merged_path: /storage/data/merged.parquet
+sample_path: /storage/data/sample.csv
+
+# schema + joins
+data_join_key: id
+meta_join_key: id
+time_col: datum
+value_col: gws
+data_sep: ","
+meta_sep: ";"
+
+# reporting
+summary_tick_every: 5
