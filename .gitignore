@@ -62,9 +62,7 @@ wandb/
 **/*.wandb
 
 # Large or generated
-checkpoints/
 outputs/
-cache/
 
 # Secrets
 *.netrc
