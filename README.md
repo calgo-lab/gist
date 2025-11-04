@@ -11,6 +11,19 @@ That first step is forecasting of groundwater levels.
 ## Groundwater Forecasting
 
 ### Quickstart
+Current quick start in pod:
+```bash
+# macOS / Linux
+source /storage/venv/bin/activate
+apt-get update
+apt-get install -y git openssh-client ca-certificates
+git --version
+git -C /storage/gwl-interpolation status
+pip install wandb
+```
+then: Command Palette → “Developer: Reload Window”
+
+On local machine:
 ```bash
 # macOS / Linux
 python3 -m venv .venv

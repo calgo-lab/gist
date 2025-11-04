@@ -57,15 +57,15 @@ htmlcov/
 *.pt
 lightning_logs/
 
-# --- Experiments: keep summaries, ignore heavy files ---
-/experiments/**/preds.parquet
-/experiments/**/artifacts/**
+# W&B local run data
+wandb/
+**/*.wandb
 
-# allow the experiment folder and summary files
-!experiments/
-!experiments/experiments.csv
-!experiments/**/metrics_overall.csv
-!experiments/**/metrics_by_horizon.csv
-!experiments/**/skill_vs_persist.csv
-!experiments/**/config.yaml
-!experiments/**/notes.md
+# Large or generated
+checkpoints/
+outputs/
+cache/
+
+# Secrets
+*.netrc
+.env
