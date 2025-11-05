@@ -53,6 +53,9 @@ htmlcov/
 /models/*
 /outputs/*
 /predictions/*
+/experiments/*
+/logs/*
+*metrics.csv
 *.ckpt
 *.pt
 lightning_logs/
