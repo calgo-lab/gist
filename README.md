@@ -19,6 +19,8 @@ apt-get update
 apt-get install -y git openssh-client ca-certificates
 git --version
 git -C /storage/gwl-interpolation status
+git config --global user.name  "row56"
+git config --global user.email "kontakt@robert-wienroeder.de"
 pip install wandb
 ```
 then: Command Palette → “Developer: Reload Window”
