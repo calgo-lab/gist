@@ -1,0 +1,107 @@
+SEEDS=(40 94 673 1899 2100 2149 2230 6013 9595 9898)
+
+for S in "${SEEDS[@]}"; do
+cat <<'YAML' | sed "s/SEED_VALUE/$S/g" | kubectl apply -f -
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gw-train-seed-SEED_VALUE
+  labels:
+    app: gw-train
+spec:
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: gw-train
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        gpu: a100
+      volumes:
+      - name: gw-pred-rwx
+        persistentVolumeClaim:
+          claimName: gw-pred-rwx
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: "16Gi"
+      containers:
+      - name: train
+        image: row56/gw-pred:py312-cu124
+        imagePullPolicy: Always
+        resources:
+          requests:
+            cpu: "16"
+            memory: 64Gi
+            nvidia.com/gpu: 1
+          limits:
+            memory: 64Gi
+            nvidia.com/gpu: 1
+        env:
+        - name: WANDB_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: wandb-api
+              key: api-key
+        - name: WANDB_PROJECT
+          value: "gw-pred"
+        - name: WANDB_ENTITY
+          value: "gw-pred"
+        - name: WANDB_DIR
+          value: "/storage/wandb"
+        - name: PYTHONUNBUFFERED
+          value: "1"
+
+        # experiment knobs
+        - name: SEED
+          value: "SEED_VALUE"
+        - name: DATASET
+          value: "full_merged"
+        - name: IN_LEN
+          value: "52"
+        - name: OUT_LEN
+          value: "16"
+        - name: EPOCHS
+          value: "50"
+        - name: STATICS
+          value: "1"
+        - name: BATCH_SIZE
+          value: "4096"
+        - name: STRIDE
+          value: "4"
+        - name: RETRAIN
+          value: "0"
+
+        # spatial split
+        - name: SPATIAL_TRAIN_FRACTION
+          value: "0.8"
+        - name: SPATIAL_CLUSTER_COUNT
+          value: "20"
+        - name: SPATIAL_EXCLUDE_TERMS
+          value: "geometry,x_25833,y_25833"
+
+        # early stopping
+        - name: EARLY_STOP_MONITOR
+          value: "val_loss"
+        - name: EARLY_STOP_PATIENCE
+          value: "5"
+        - name: EARLY_STOP_MIN_DELTA
+          value: "0.0"
+        - name: EARLY_STOP_MODE
+          value: "min"
+
+        volumeMounts:
+        - name: gw-pred-rwx
+          mountPath: /storage
+        - name: dshm
+          mountPath: /dev/shm
+        command: ["bash","-lc"]
+        args:
+        - >
+          source /storage/venv/bin/activate &&
+          cd /storage/gwl-interpolation &&
+          python src/models/kunz_darts/train.py &&
+          python src/models/kunz_darts/eval.py
+YAML
+done
