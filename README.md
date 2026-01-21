@@ -23,7 +23,7 @@ git config --global user.name  "row56"
 git config --global user.email "kontakt@robert-wienroeder.de"
 pip install wandb
 ```
-then: Command Palette → “Developer: Reload Window”
+then: Command Palette -> "Developer: Reload Window"
 
 On local machine:
 ```bash
@@ -45,12 +45,74 @@ pip install -r requirements.txt
 ### Data
 Configure local dataset file paths in `configs/data.yaml`. `data/sample.csv` is a small sample of the dataset.
 
-### Reproduce outputs (optional)
+
+### Reproduce outputs
 If you want to reproduce the contents of data and reports, run this; if checksum test (next section) is successful, it will recreate the exact same files though
 ```bash
 python -m src.data.ingest
 python -m src.data.summary
 ```
+
+### Training
+Basic training (single run):
+```bash
+DATASET=full_raw SEED=40 IN_LEN=52 OUT_LEN=16 STATICS=1 EPOCHS=50 \
+python src/models/kunz_darts/train.py
+```
+
+
+Outputs:
+- `outputs/<MODEL>/<RUN_NAME>/`: model artifacts and checkpoints
+- `outputs/spatial_split_<DATASET>.csv`: spatial train/holdout IDs
+
+### Evaluation
+Evaluation generates predictions and metrics:
+```bash
+DATASET=full_raw SEED=40 IN_LEN=52 OUT_LEN=16 STATICS=1 \
+python src/models/kunz_darts/eval.py
+```
+
+Outputs per run:
+- `predictions/pred.parquet`: historical forecasts
+- `metrics.parquet`: evaluation metrics by horizon
+- `skill_by_horizon.parquet`: skill vs persistence by horizon
+
+### Sweeps
+To run multi-seed sweeps and log metrics:
+```bash
+python src/models/kunz_darts/runs.py
+```
+
+This writes `reports/metrics/metrics.csv` with timing and selected summary values.
+
+For multi-seed runs on several GPUs in parallel, run the contents of jobs/training.
+
+### Metrics summary
+Aggregate run metrics into a summary table:
+```bash
+python src/analysis/build_tft_metrics_summary.py
+```
+
+Outputs:
+- `reports/metrics/tft_metrics_summary.csv`
+- `reports/metrics/tft_metrics_summary_sparse.csv`
+
+### Spatial interpolation notebook
+`kriging_predicted_seed40.ipynb` builds spatial interpolation maps from:
+- model predictions at a chosen horizon, and
+- true values at the same horizon,
+then compares against spatial holdout wells
+
+### Repository layout
+- `src/models/kunz_darts/train.py`: trains a forecasting model and writes model artifacts
+- `src/models/kunz_darts/eval.py`: loads a trained model, generates historical forecasts, and writes metrics
+- `src/models/kunz_darts/runs.py`: runs multi-seed sweeps and logs metrics to CSV
+- `src/analysis/build_tft_metrics_summary.py`: aggregates evaluation metrics across runs
+- `src/libs/spatial_split.py`: creates spatial train/holdout splits using clustering over static features
+- `kriging_predicted_seed40.ipynb`: spatial interpolation notebook using predicted and true values
+- `configs/data.yaml`: dataset paths for local environments
+- `outputs/`: model runs, predictions, metrics, and spatial split files
+- `reports/metrics/`: summary CSV outputs
 
 ### Checksums
 Store hashes for locally saved data:
