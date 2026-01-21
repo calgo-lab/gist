@@ -11,10 +11,13 @@ def bar_years_full_range(counts, title, outpath, tick_every):
     counts = counts.reindex(range(y0, y1 + 1), fill_value=0).astype(int)
     plt.figure(figsize=(10, 5), dpi=200)
     ax = counts.plot(kind="bar")
-    ax.set_title(title); ax.set_xlabel("Year"); ax.set_ylabel("Count")
+    ax.set_title(title)
+    ax.set_xlabel("Year")
+    ax.set_ylabel("Count")
     years = list(counts.index)
     pos = [i for i, y in enumerate(years) if (y - years[0]) % tick_every == 0]
-    ax.set_xticks(pos); ax.set_xticklabels([years[i] for i in pos], rotation=45, ha="right")
+    ax.set_xticks(pos)
+    ax.set_xticklabels([years[i] for i in pos], rotation=45, ha="right")
     plt.tight_layout(); plt.savefig(outpath, dpi=200); plt.close()
 
 
@@ -30,8 +33,12 @@ def plot_start_end_active(df, time_col, id_col, figures_dir, tick_every):
     active = df.groupby(weeks)[id_col].nunique().sort_index()
     plt.figure(figsize=(10, 5), dpi=200)
     ax = active.plot()
-    ax.set_title("Active Wells per Week"); ax.set_xlabel("Week (Mon-start)"); ax.set_ylabel("Number of Active Wells")
-    plt.tight_layout(); plt.savefig(figures_dir / "active_wells_per_week.png", dpi=200); plt.close()
+    ax.set_title("Active Wells per Week")
+    ax.set_xlabel("Week (Mon-start)")
+    ax.set_ylabel("Number of Active Wells")
+    plt.tight_layout()
+    plt.savefig(figures_dir / "active_wells_per_week.png", dpi=200)
+    plt.close()
 
 
 def run(cfg_path: Path):
@@ -40,8 +47,7 @@ def run(cfg_path: Path):
     id_col = cfg.get("id_col", "id")
     sep = cfg.get("sep", ",")
 
-    # prefer merged if present
-    data_path = Path(cfg.get("data_path", "data/merged.parquet"))
+    data_path = Path(cfg.get("data_path", cfg.get("full_merged_path", "data/merged.parquet")))
     if not data_path.exists():
         data_path = Path("data/merged.parquet")
 
@@ -54,10 +60,12 @@ def run(cfg_path: Path):
     df = df.sort_values([id_col, time_col]).reset_index(drop=True)
 
     reports_dir = Path("reports"); reports_dir.mkdir(parents=True, exist_ok=True)
-    figures_dir = reports_dir / "figures"; figures_dir.mkdir(parents=True, exist_ok=True)
-    metrics_dir = reports_dir / "metrics"; metrics_dir.mkdir(parents=True, exist_ok=True)
+    figures_dir = reports_dir / "figures"
+    figures_dir.mkdir(parents=True, exist_ok=True)
+    metrics_dir = reports_dir / "metrics"
+    metrics_dir.mkdir(parents=True, exist_ok=True)
 
-    plot_start_end_active(df, time_col, id_col, figures_dir, cfg.get("summary_tick_every", 5))
+    plot_start_end_active(df, time_col, id_col, figures_dir, 5)
 
     overall_na_pct = (df.isna().values.mean() * 100)
     g = df.groupby(id_col)[time_col]
