@@ -89,16 +89,6 @@ Outputs:
 - true values at the same horizon,
 then compares against spatial holdout wells
 
-### Repository layout
-- `src/models/kunz_darts/train.py`: trains a forecasting model and writes model artifacts
-- `src/models/kunz_darts/eval.py`: loads a trained model, generates historical forecasts, and writes metrics
-- `src/models/kunz_darts/runs.py`: runs multi-seed sweeps and logs metrics to CSV
-- `src/analysis/build_tft_metrics_summary.py`: aggregates evaluation metrics across runs
-- `src/libs/spatial_split.py`: creates spatial train/holdout splits using clustering over static features
-- `kriging_predicted_seed40.ipynb`: spatial interpolation notebook using predicted and true values
-- `configs/data.yaml`: dataset paths for local environments
-- `outputs/`: model runs, predictions, metrics, and spatial split files
-- `reports/metrics/`: summary CSV outputs
 
 ### Checksums
 Store hashes for locally saved data:
