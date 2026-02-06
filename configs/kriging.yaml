@@ -1,0 +1,11 @@
+# kriging_date: "2015-01-06"
+horizon: 16
+seed: 40
+spatial_split_tag: ""
+kriging_source: "pred"
+
+kernel:
+  nu: 1.5
+  length_scale: 1.0
+  noise: 0.001
+  restarts: 2

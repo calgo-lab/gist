@@ -1,0 +1,46 @@
+dataset: full_merged
+model: TFT
+run_sig: "in52_out16_ep50_bs4096_stat1_seed40_full_merged_spf0p8_sc20_ss42"
+
+data:
+  in_len: 52
+  out_len: 16
+  statics: true
+
+training:
+  epochs: 50
+  batch_size: 4096
+  seed: 40
+  num_workers: 10
+  early_stopping:
+    monitor: val_loss
+    patience: 3
+    min_delta: 0.0
+    mode: min
+
+model:
+  dropout: 0.2
+
+spatial_split:
+  train_fraction: 0.8
+  cluster_count: 20
+  split_seed: 42
+  exclude_terms: "geometry,x_25833,y_25833"
+
+eval:
+  stride: 1
+  retrain: false
+  force_reeval: false
+
+runs:
+  in_lens: [52]
+  out_lens: [16]
+  statics: [true]
+  epochs: [50]
+  batch_size: 4096
+  seeds: [40, 94, 673, 1899, 2100, 2149, 2230, 6013, 9595, 9898]
+
+wandb:
+  project: gw-pred
+  entity: gw-pred
+  enabled: true

@@ -1,16 +1,5 @@
-# PVC-resident files
-full_raw_path: /storage/data/gws_bb_complete_hyras_1000.parquet
-metadata_path: /storage/data/meta_LFU_info.csv
-full_merged_path: /storage/data/merged.parquet
-sample_path: /storage/data/sample.csv
-
-# schema + joins
-data_join_key: id
-meta_join_key: id
-time_col: datum
-value_col: gws
-data_sep: ","
-meta_sep: ";"
-
-# reporting
-summary_tick_every: 5
+# files should be in the data directory which should be in the same directory as the repo: ../data/
+full_raw_path: ../data/gws_bb_complete_hyras_1000.parquet
+metadata_path: ../data/meta_LFU_info.csv
+full_merged_path: ../data/merged.parquet
+sample_path: ../data/sample.csv
