@@ -43,9 +43,9 @@ def plot_start_end_active(df, time_col, id_col, figures_dir, tick_every):
 
 def run(cfg_path: Path):
     cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
-    time_col = cfg.get("time_col", "datum")
-    id_col = cfg.get("id_col", "id")
-    sep = cfg.get("sep", ",")
+    time_col = "datum"
+    id_col = "id"
+    sep = ","
 
     data_path = Path(cfg.get("data_path", cfg.get("full_merged_path", "data/merged.parquet")))
     if not data_path.exists():

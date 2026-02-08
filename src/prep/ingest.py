@@ -1,7 +1,7 @@
 import sys, pandas as pd, yaml
 from pathlib import Path
 
-def load_table(path: str, sep: str | None = None) -> pd.DataFrame:
+def load_table(path, sep):
     p = str(path).lower()
     if p.endswith((".parq", ".parquet")):
         return pd.read_parquet(path)
@@ -13,10 +13,10 @@ def main(cfg):
     merged_out = cfg["full_merged_path"]
     sample_out = cfg["sample_path"]
 
-    dk, mk = cfg.get("data_join_key"), cfg.get("meta_join_key")
-    tcol   = cfg.get("time_col")
-    data_sep = cfg.get("data_sep", ",")
-    meta_sep = cfg.get("meta_sep", ";")
+    dk, mk = "id", "id"
+    tcol = "datum"
+    data_sep = ","
+    meta_sep = ";"
 
     data = load_table(raw_path, sep=data_sep)
     meta = load_table(meta_path, sep=meta_sep) if meta_path else None

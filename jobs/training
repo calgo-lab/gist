@@ -101,7 +101,7 @@ spec:
         - >
           source /storage/venv/bin/activate &&
           cd /storage/gwl-interpolation &&
-          python src/models/kunz_darts/train.py &&
-          python src/models/kunz_darts/eval.py
+          python src/scripts/separate/temporal/kunz_darts/tft_train.py &&
+          python src/scripts/separate/temporal/kunz_darts/tft_eval.py
 YAML
 done
