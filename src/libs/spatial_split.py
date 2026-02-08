@@ -8,6 +8,14 @@ from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 
 
+def save_spatial_split(split_df, splits_root, dataset):
+    fname = f"spatial_split_{dataset}.csv"
+    splits_root.mkdir(parents=True, exist_ok=True)
+    out_path = splits_root / fname
+    split_df.to_csv(out_path, index=False)
+    return out_path
+
+
 def filter_static_columns(columns, exclude_terms):
     if not exclude_terms:
         return list(columns)
@@ -82,3 +90,22 @@ def spatial_train_subset(gws_bb, static_regex,train_fraction, n_clusters, rng_se
 
     filtered = gws_bb[gws_bb['id'].isin(train_ids_set)].copy()
     return filtered, info
+
+
+def load_or_create_split(gws_bb, static_regex, train_fraction, n_clusters, rng_seed, exclude_terms, save_path):
+
+    if save_path and Path(save_path).exists():
+        info = pd.read_csv(save_path)
+        train_ids = set(info.loc[info["spatial_split"] == "spatial_train", "id"])
+        filtered = gws_bb[gws_bb["id"].isin(train_ids)].copy()
+        return filtered, info
+
+    return spatial_train_subset(
+        gws_bb,
+        static_regex=static_regex,
+        train_fraction=train_fraction,
+        n_clusters=n_clusters,
+        rng_seed=rng_seed,
+        exclude_terms=exclude_terms,
+        save_path=save_path,
+    )

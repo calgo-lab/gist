@@ -59,6 +59,7 @@ htmlcov/
 *.ckpt
 *.pt
 lightning_logs/
+artifacts/
 
 # W&B local run data
 wandb/
@@ -66,6 +67,16 @@ wandb/
 
 # Large or generated
 outputs/
+
+# Track spatial splits
+!splits/
+!splits/*.csv
+
+# Track gp metrics written under outputs/gp
+!outputs/
+!outputs/gp/
+!outputs/gp/**/
+!outputs/gp/**/gp_metrics.parquet
 
 # Secrets
 *.netrc
