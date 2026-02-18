@@ -1,7 +1,7 @@
 # Groundwater Level Interpolation 
-This project is building a pipeline for spatiotemporal interpolation of groundwater levels.
+This project is building a pipeline for spatiotemporal interpolation of groundwater levels
 
-Last update: February 07th, 2026
+Last update: February 08th, 2026
 
 The first step is recreating the baseline from Kunz et al. (2024), accessible here:
 https://doi.org/10.5194/egusphere-2024-3484
@@ -122,7 +122,6 @@ python src/scripts/separate/spatial/kriging.py
 
 ### Notebook vs script
 The plan is to move plots and visualizations into the script and eventually remove the notebook.
-If that does not make sense for your workflow, say so and we will keep the notebook.
 
 ## Global runs
 One command to run the end-to-end pipeline (temporal + spatial):
