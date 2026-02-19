@@ -33,8 +33,8 @@ pip install -r requirements.txt
 ```
 
 ### Requirements
-- Python 3.10+ recommended (GPU optional; CPU works but slower)
-- No system packages required unless your local PyArrow build needs them
+- Python 3.10+ recommended
+- GPU recommended
 
 ### Data
 Configure local dataset file paths in `configs/data.yaml`. `data/sample.csv` is a small sample of the dataset.
