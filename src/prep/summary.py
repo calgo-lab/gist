@@ -41,6 +41,28 @@ def plot_start_end_active(df, time_col, id_col, figures_dir, tick_every):
     plt.close()
 
 
+def write_spatiotemporal_range_summary(df, time_col, id_col, value_col, out_csv):
+    work = df[[id_col, time_col, value_col]].dropna(subset=[id_col, time_col, value_col]).copy()
+    work[value_col] = pd.to_numeric(work[value_col], errors="coerce")
+    work = work.dropna(subset=[value_col])
+
+    per_well_range = work.groupby(id_col)[value_col].agg(lambda s: s.max() - s.min())
+    per_timestep_range = work.groupby(time_col)[value_col].agg(lambda s: s.max() - s.min())
+
+    rows = [
+        {"scope": "temporal_per_well", "stat": "mean", "value_m": float(per_well_range.mean())},
+        {"scope": "temporal_per_well", "stat": "median", "value_m": float(per_well_range.median())},
+        {"scope": "temporal_per_well", "stat": "max", "value_m": float(per_well_range.max())},
+        {"scope": "spatial_per_timestep", "stat": "mean", "value_m": float(per_timestep_range.mean())},
+        {"scope": "spatial_per_timestep", "stat": "median", "value_m": float(per_timestep_range.median())},
+        {"scope": "spatial_per_timestep", "stat": "max", "value_m": float(per_timestep_range.max())},
+    ]
+    out = pd.DataFrame(rows)
+    out["value_m"] = out["value_m"].round(6)
+    out_csv.parent.mkdir(parents=True, exist_ok=True)
+    out.to_csv(out_csv, index=False)
+
+
 def run(cfg_path: Path):
     cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
     time_col = "datum"
@@ -60,10 +82,12 @@ def run(cfg_path: Path):
     df = df.sort_values([id_col, time_col]).reset_index(drop=True)
 
     reports_dir = Path("reports"); reports_dir.mkdir(parents=True, exist_ok=True)
-    figures_dir = reports_dir / "figures"
+    figures_dir = reports_dir / "overall" / "figures"
     figures_dir.mkdir(parents=True, exist_ok=True)
-    metrics_dir = reports_dir / "metrics"
-    metrics_dir.mkdir(parents=True, exist_ok=True)
+    metrics_dir_tft = reports_dir / "tft" / "metrics"
+    metrics_dir_tft.mkdir(parents=True, exist_ok=True)
+    metrics_dir_overall = reports_dir / "overall" / "metrics"
+    metrics_dir_overall.mkdir(parents=True, exist_ok=True)
 
     plot_start_end_active(df, time_col, id_col, figures_dir, 5)
 
@@ -78,7 +102,10 @@ def run(cfg_path: Path):
     cov["span_days"] = (cov["end_date"] - cov["start_date"]).dt.days
     cov["first_year"] = cov["start_date"].dt.year
     cov["last_year"]  = cov["end_date"].dt.year
-    cov.to_csv(metrics_dir / "coverage_by_well.csv", index=False)
+    cov.to_csv(metrics_dir_overall / "coverage_by_well.csv", index=False)
+
+    range_summary_path = metrics_dir_overall / "spatiotemporal_range_summary.csv"
+    write_spatiotemporal_range_summary(df, time_col=time_col, id_col=id_col, value_col="gws", out_csv=range_summary_path)
 
     lines = [
         "# Data Summary",
@@ -86,8 +113,9 @@ def run(cfg_path: Path):
         f"- Wells: {df[id_col].nunique():,}",
         f"- Time span: {df[time_col].min().date()} → {df[time_col].max().date()}",
         f"- Overall NA across table: {overall_na_pct:.1f}%",
+        f"- Spatiotemporal range summary: `{range_summary_path.as_posix()}`",
     ]
-    (reports_dir / "summary.md").write_text("\n".join(lines))
+    (reports_dir / "overall" / "summary.md").write_text("\n".join(lines))
 
 
 if __name__ == "__main__":
