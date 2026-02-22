@@ -16,6 +16,17 @@ def save_spatial_split(split_df, splits_root, dataset):
     return out_path
 
 
+def resolve_split_path(splits_root, dataset, spatial_cfg=None):
+    cfg = spatial_cfg if isinstance(spatial_cfg, dict) else {}
+    file_cfg = str(cfg.get("file", "")).strip()
+    if not file_cfg:
+        return Path(splits_root) / f"spatial_split_{dataset}.csv"
+    p = Path(file_cfg)
+    if p.is_absolute():
+        return p
+    return (Path(splits_root).parent / p).resolve()
+
+
 def filter_static_columns(columns, exclude_terms):
     if not exclude_terms:
         return list(columns)
@@ -73,10 +84,7 @@ def spatial_train_subset(gws_bb, static_regex,train_fraction, n_clusters, rng_se
             continue
         take = int(math.ceil(len(ids) * frac))
         take = min(len(ids), max(1, take))
-        if take == len(ids):
-            chosen = ids
-        else:
-            chosen = rng.choice(ids, size=take, replace=False)
+        chosen = rng.choice(ids, size=take, replace=False)
         train_ids.extend(chosen.tolist())
 
     train_ids_set = set(list(train_ids))
