@@ -1,0 +1,7 @@
+scope,stat,value_m
+temporal_per_well,mean,1.779173
+temporal_per_well,median,1.57
+temporal_per_well,max,16.36
+spatial_per_timestep,mean,113.202142
+spatial_per_timestep,median,130.02
+spatial_per_timestep,max,131.54
