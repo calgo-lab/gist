@@ -1,0 +1,16 @@
+horizon,run,NSE,RMSE
+1,gru_in26_out4_ep1_full_merged_spatial_split_spf0p5_sc20_ss42,-0.982,0.231
+1,gru_in26_out4_ep1_sample_spf0p5_sc5_ss42,-2798.952,12.955
+1,gru_in26_out4_ep1_sample_spf0p8_sc5_ss42,-11.805,0.901
+1,gru_in52_out16_ep1_full_merged_spatial_split_spf0p5_sc20_ss42,-3.76,0.334
+1,gru_in52_out16_ep2_full_merged_spatial_split_spf0p5_sc20_ss42,-0.414,0.221
+1,gru_in52_out16_ep5_full_merged_spatial_split_spf0p5_sc20_ss42,0.511,0.124
+1,gru_in52_out16_ep5_full_merged_spatial_split_spf0p8_sc20_ss42,0.513,0.129
+8,gru_in52_out16_ep1_full_merged_spatial_split_spf0p5_sc20_ss42,-1.723,0.318
+8,gru_in52_out16_ep2_full_merged_spatial_split_spf0p5_sc20_ss42,-0.243,0.23
+8,gru_in52_out16_ep5_full_merged_spatial_split_spf0p5_sc20_ss42,0.185,0.18
+8,gru_in52_out16_ep5_full_merged_spatial_split_spf0p8_sc20_ss42,0.065,0.183
+16,gru_in52_out16_ep1_full_merged_spatial_split_spf0p5_sc20_ss42,-3.563,0.452
+16,gru_in52_out16_ep2_full_merged_spatial_split_spf0p5_sc20_ss42,-1.116,0.297
+16,gru_in52_out16_ep5_full_merged_spatial_split_spf0p5_sc20_ss42,-0.916,0.275
+16,gru_in52_out16_ep5_full_merged_spatial_split_spf0p8_sc20_ss42,-0.861,0.268
