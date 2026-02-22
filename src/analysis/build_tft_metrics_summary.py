@@ -2,12 +2,15 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+import pyarrow.parquet as pq
 
 ROOT = Path(__file__).resolve().parents[2]
 
-KUNZ_FILE = ROOT / "reports/metrics/kunz_metrics_aggregated.parquet"
-FULL_TABLE_CSV = ROOT / "reports/metrics/tft_metrics_summary.csv"
-SPARSE_TABLE_CSV = ROOT / "reports/metrics/tft_metrics_summary_sparse.csv"
+KUNZ_FILE = ROOT / "reports/tft/metrics/kunz_metrics_aggregated.parquet"
+FULL_TABLE_CSV = ROOT / "reports/tft/metrics/tft_metrics_summary.csv"
+SPARSE_TABLE_CSV = ROOT / "reports/tft/metrics/tft_metrics_summary_sparse.csv"
+FIGURES_DIR = ROOT / "reports/tft/figures"
 
 MODEL = "TFT"
 IN_LEN = 52
@@ -24,6 +27,93 @@ RUN_SPECS = [
 
 METRICS_KEEP = ["NSE", "RMSE", "MAE", "rMBE"]
 HORIZONS = list(range(1, 17))
+
+
+def horizon_variation_analysis(pred_path):
+    """
+    Compute and print how much TFT predictions vary across horizons (h=1..h=16)
+    for the same target date, compared to the spatial spread between wells.
+
+    Horizon variation per well: max(gws across horizons) - min(gws across horizons).
+    Spatial range: max(gws at h=1 across wells) - min(gws at h=1 across wells).
+    Both are max-min ranges; ratio shows horizon effect relative to spatial spread.
+
+    One row per calendar month sampled from the range where all 16 horizons exist.
+    Returns a DataFrame with the per-month results.
+    """
+    pred = pq.read_table(pred_path).to_pandas()
+    pred["datum"] = pd.to_datetime(pred["datum"])
+    pred["startzeitpunkt"] = pd.to_datetime(pred["startzeitpunkt"])
+    pred["horizon"] = ((pred["datum"] - pred["startzeitpunkt"]) / pd.Timedelta(weeks=1)) + 1
+
+    all_horizons = pred.groupby("datum")["horizon"].nunique()
+    dates_with_all16 = pd.DatetimeIndex(all_horizons[all_horizons == 16].index)
+
+    monthly = {}
+    for d in dates_with_all16:
+        key = (d.year, d.month)
+        if key not in monthly:
+            monthly[key] = d
+    sample_dates = sorted(monthly.values())
+
+    rows = []
+    for dt in sample_dates:
+        d_rows = pred[pred["datum"] == dt]
+        # Per-well range across all horizons, then median across wells
+        well_ranges = d_rows.groupby("index")["gws"].agg(lambda x: x.max() - x.min())
+        median_horizon_range = well_ranges.median()
+        n_wells = int(well_ranges.count())
+        # Spatial range at h=1
+        h1_vals = d_rows[np.isclose(d_rows["horizon"], 1.0)]["gws"]
+        spatial_range = float(h1_vals.max() - h1_vals.min())
+        ratio = median_horizon_range / spatial_range if spatial_range > 0 else np.nan
+        rows.append({
+            "date": str(dt.date()),
+            "n_wells": n_wells,
+            "median_horizon_range_m": round(float(median_horizon_range), 4),
+            "spatial_range_m": round(spatial_range, 4),
+            "ratio_pct": round(float(ratio * 100), 3),
+        })
+
+    df = pd.DataFrame(rows)
+    overall_median_horizon_range = round(float(df["median_horizon_range_m"].median()), 4)
+    overall_median_spatial_range = round(float(df["spatial_range_m"].median()), 4)
+    overall_median_ratio = round(float(df["ratio_pct"].median()), 3)
+
+    print()
+    print("=" * 74)
+    print("HORIZON VARIATION ANALYSIS  (reproducible from pred.parquet)")
+    print("Question: how much do TFT predictions vary across horizons h=1..16")
+    print("(per-well max-min range) vs spatial spread (max-min across wells)?")
+    print("=" * 74)
+    print(
+        f"{'Date':<12}  {'n_wells':>7}  "
+        f"{'Median per-well range h1..h16 (m)':>33}  "
+        f"{'Spatial range at h=1 (m)':>24}  {'Ratio (%)':>9}"
+    )
+    print("-" * 74)
+    for _, r in df.iterrows():
+        print(
+            f"{r['date']:<12}  {int(r['n_wells']):>7}  "
+            f"{r['median_horizon_range_m']:>23.4f}  "
+            f"{r['spatial_range_m']:>17.4f}  "
+            f"{r['ratio_pct']:>9.3f}"
+        )
+    print("-" * 74)
+    print(
+        f"{'OVERALL':<12}  {'':>7}  "
+        f"{overall_median_horizon_range:>23.4f}  "
+        f"{overall_median_spatial_range:>17.4f}  "
+        f"{overall_median_ratio:>9.3f}"
+    )
+    print("=" * 74)
+    print()
+    print(f"Conclusion: the horizon effect ({overall_median_horizon_range} m) is {overall_median_ratio}% of")
+    print(f"the spatial spread ({overall_median_spatial_range} m). Evaluating at a fixed")
+    print(f"horizon (h=16) across many dates captures the meaningful variation.")
+    print()
+
+    return df, overall_median_horizon_range, overall_median_spatial_range, overall_median_ratio
 
 
 def run_sig(in_len, out_len, epochs, statics, seed, dataset, bs):
@@ -138,8 +228,24 @@ def main():
 
     final.to_csv(FULL_TABLE_CSV, index=False)
 
+    # --- NSE by horizon plot ---
+    FIGURES_DIR.mkdir(parents=True, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(9, 5))
+    for run_label in final["run"].unique():
+        sub = final[final["run"] == run_label].sort_values("horizon")
+        ax.plot(sub["horizon"], sub["NSE"], marker="o", markersize=4, label=run_label)
+    ax.set_xlabel("Forecast horizon (weeks)")
+    ax.set_ylabel("NSE (median across wells & seeds)")
+    ax.set_title("TFT NSE by forecast horizon")
+    ax.set_xticks(HORIZONS)
+    ax.legend(fontsize=8, frameon=False)
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(FIGURES_DIR / "tft_nse_by_horizon.png", dpi=200)
+    plt.close(fig)
+
     SPARSE_HORIZONS = [1, 8, 16]
-    sparse = final[final["horizon"].isin(SPARSE_HORIZONS) & (~final["run"].str.contains("robert_ep1"))].copy()
+    sparse = final[final["horizon"].isin(SPARSE_HORIZONS)].copy()
     sparse = sparse[["horizon", "run", "NSE", "RMSE"]]
     sparse["run_order"] = sparse["run"].map(run_order).fillna(9999)
     sparse = sparse.sort_values(["horizon", "run_order"]).drop(columns="run_order")
