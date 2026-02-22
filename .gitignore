@@ -65,18 +65,11 @@ artifacts/
 wandb/
 **/*.wandb
 
-# Large or generated
-outputs/
-
 # Track spatial splits
 !splits/
 !splits/*.csv
 
-# Track gp metrics written under outputs/gp
-!outputs/
-!outputs/gp/
-!outputs/gp/**/
-!outputs/gp/**/gp_metrics.parquet
+!outputs/TFT/TFT_dyn_stat_5km_40
 
 # Secrets
 *.netrc
