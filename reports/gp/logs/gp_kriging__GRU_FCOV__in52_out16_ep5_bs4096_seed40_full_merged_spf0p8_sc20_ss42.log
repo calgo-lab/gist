@@ -1,0 +1,7 @@
+=== GP KRIGING GRU_FCOV in52_out16_ep5_bs4096_seed40_full_merged_spf0p8_sc20_ss42 ===
+Saved GP outputs to /storage/gwl-interpolation/outputs/gp/GRU_FCOV__in52_out16_ep5_bs4096_seed40_full_merged_spf0p8_sc20_ss42__predobstrain
+Valid pairs: 105 / attempted: 105
+
+real	7m20.558s
+user	353m24.806s
+sys	0m48.773s
