@@ -1,8 +1,8 @@
 dataset: full_merged
 
 model:
-  gru_hidden: 64
-  gru_layers: 1
+  gru_hidden: 128
+  gru_layers: 2
   gru_dropout: 0.2
   dropout: 0.2
 
@@ -14,14 +14,14 @@ data:
   statics: true
 
 training:
-  epochs: 5
+  epochs: 50
   batch_size: 4096
   seed: 40
   num_workers: 10
   early_stopping:
     monitor: val_loss
-    patience: 1
-    min_delta: 1e-5
+    patience: 5
+    min_delta: 1e-4
     mode: min
 
 spatial_split:
@@ -52,4 +52,4 @@ runs:
 wandb:
   project: gw-pred
   entity: gw-pred
-  enabled: false
+  enabled: true
