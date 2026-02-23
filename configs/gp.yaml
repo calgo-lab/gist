@@ -1,0 +1,21 @@
+dataset: full_merged
+model: GRU_FCOV
+run_sig: auto
+horizon: 16
+seed: 40
+spatial_split_tag: ""
+spatial_split_file: ""
+max_pairs: 0
+
+date_strategy: "biweekly"
+# date_strategy: "monthly"
+# kriging_dates:
+#   - "2024-01-01"
+#   - "2024-01-15"
+
+kernel:
+  nu: 1.5
+  length_scale: 1.0
+  noise: 0.001
+  restarts: 2
+
