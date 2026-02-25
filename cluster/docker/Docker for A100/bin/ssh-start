@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -e
+mkdir -p /var/run/sshd
+exec /usr/sbin/sshd -D
