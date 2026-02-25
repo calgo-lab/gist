@@ -217,11 +217,14 @@ def main():
     model.load_state_dict(checkpoint["model"])
     model.eval()
 
+    eval_batch_size = int(training_cfg.get("batch_size", 4096))
     with torch.no_grad():
-        pred = model(
-            torch.from_numpy(x_past_val).to(device),
-            torch.from_numpy(x_future_val).to(device),
-        ).cpu().numpy()
+        chunks = []
+        for start in range(0, len(x_past_val), eval_batch_size):
+            xp = torch.from_numpy(x_past_val[start:start + eval_batch_size]).to(device)
+            xf = torch.from_numpy(x_future_val[start:start + eval_batch_size]).to(device)
+            chunks.append(model(xp, xf).cpu().numpy())
+        pred = np.concatenate(chunks, axis=0)
     pred = y_scaler.inverse_transform(pred.reshape(-1, 1)).reshape(pred.shape)
 
     rows = []
