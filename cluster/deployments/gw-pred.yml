@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gw-pred
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gw-pred
+  template:
+    metadata:
+      labels:
+        app: gw-pred
+    spec:
+      nodeSelector:
+        gpu: a100
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: gpu
+                operator: In
+                values: ["a100"]
+              - key: nvidia.com/gpu.memory
+                operator: In
+                values: ["40960"]
+      containers:
+      - name: gw-pred
+        image: row56/gw-pred:py312-cu124
+        imagePullPolicy: Always
+        securityContext:
+          runAsUser: 0
+        env:
+        - name: WANDB_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: wandb-api
+              key: api-key
+        - name: WANDB_PROJECT
+          value: "gw-pred"
+        - name: WANDB_ENTITY
+          value: "gw-pred"
+        - name: WANDB_DIR
+          value: "/storage/wandb"
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        - name: VSCODE_AGENT_FOLDER
+          value: /storage/vscode-agent
+        - name: JUPYTER_PATH
+          value: /storage/jupyter
+        - name: GIT_CONFIG_GLOBAL
+          value: /storage/.gitconfig
+        lifecycle:
+          postStart:
+            exec:
+              command:
+                - /bin/sh
+                - -lc
+                - |
+                  mkdir -p /storage/vscode-agent
+                  rm -rf /root/.vscode-server
+                  ln -s /storage/vscode-agent /root/.vscode-server
+                  mkdir -p /storage/jupyter
+                  mkdir -p /root/.local/share
+                  rm -rf /root/.local/share/jupyter
+                  ln -s /storage/jupyter /root/.local/share/jupyter
+        ports:
+        - containerPort: 22
+        resources:
+          requests:
+            cpu: "16"
+            memory: 100Gi
+            nvidia.com/gpu: 1
+          limits:
+            cpu: "16"
+            memory: 100Gi
+            nvidia.com/gpu: 1
+        volumeMounts:
+        - name: gw-pred-rwx
+          mountPath: /storage
+        - name: ssh-key
+          mountPath: /root/.ssh/authorized_keys
+          subPath: authorized_keys
+          readOnly: true
+        - name: dshm
+          mountPath: /dev/shm
+      volumes:
+      - name: gw-pred-rwx
+        persistentVolumeClaim:
+          claimName: gw-pred-rwx
+      - name: ssh-key
+        secret:
+          secretName: gw-pred-ssh-key
+          defaultMode: 0600
+      - name: dshm
+        emptyDir:
+          medium: Memory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gw-pred-ssh
+spec:
+  type: ClusterIP
+  selector:
+    app: gw-pred
+  ports:
+  - name: ssh
+    port: 22
+    targetPort: 22
