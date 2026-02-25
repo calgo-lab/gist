@@ -1,79 +1,11 @@
-# --- Python bytecode and caches ---
-__pycache__/
-*.py[codz]
-*$py.class
-
-# --- Environments ---
-.venv/
-env/
-venv/
-ENV/
-.pdm-python
-.pdm-build/
-.pixi/
-
-# --- Packaging / build artifacts ---
-build/
-dist/
-.eggs/
-*.egg-info/
-wheels/
-share/python-wheels/
-MANIFEST
-
-# --- Test / coverage ---
-.tox/
-.nox/
-.pytest_cache/
-.hypothesis/
-.coverage
-.coverage.*
-.cache
-coverage.xml
-nosetests.xml
-htmlcov/
-
-# --- Notebooks ---
-.ipynb_checkpoints/
-
-# --- Editors / OS ---
+# OS metadata
 .DS_Store
-.ropeproject
-.spyderproject
-.spyproject
 
-# --- Type checkers ---
-.mypy_cache/
-.pytype/
-.pyre/
-.ruff_cache/
+# Local virtual environment
+.venv/
 
-# --- Project large artifacts (do not version) ---
-/cache/*
-/models/*
-/outputs/*
-/predictions/*
-/experiments/*
-/logs/*
-*metrics.csv
-*.ckpt
-*.pt
-lightning_logs/
-artifacts/
+# Python cache directories
+__pycache__/
 
-# W&B local run data
-wandb/
-**/*.wandb
-
-# Track spatial splits
-!splits/
-!splits/*.csv
-
-!outputs/TFT/TFT_dyn_stat_5km_40
-
-# Secrets
-*.netrc
-.env
-
-# Quickstart for working on this repo (do not track)
-quickstart.txt
+# Local untracked TFT artifacts under outputs
+outputs/TFT/
