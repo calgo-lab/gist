@@ -1,7 +1,7 @@
 # Groundwater Level Interpolation 
 This project is building a pipeline for spatiotemporal interpolation of groundwater levels
 
-Last update: February 08th, 2026
+Last update: February 26th, 2026
 
 The first step is recreating the baseline from Kunz et al. (2024), accessible here:
 https://doi.org/10.5194/egusphere-2024-3484
@@ -37,7 +37,7 @@ pip install -r requirements.txt
 - GPU recommended
 
 ### Data
-Configure local dataset file paths in `configs/data.yaml`. `data/sample.csv` is a small sample of the dataset.
+Configure local dataset file paths in `configs/data.yaml`. `data/head_preview.csv` is a small preview file in this repo.
 Expected columns (minimum):
 - `id`, `datum`, `gws`
 - dynamic covariates: `tas_5km`, `hurs_5km`, `pr_5km`, `tag_sin`, `tag_cos`
@@ -49,10 +49,10 @@ Store hashes for locally saved data:
 shasum -a 256 /path/to/main_data.parquet
 shasum -a 256 /path/to/metadata.csv
 ```
-And compare to hashes in `checksums/data.sha256` (datasets are identical if hashes are identical)
+And compare to hashes in `checksums/data.txt` (datasets are identical if hashes are identical)
 
 ### Reproduce outputs
-If you want to reproduce the contents of data and reports, run this; if checksum test (next section) is successful, it will recreate the exact same files though
+If you want to reproduce derived files in `data/` and `reports/`, run:
 ```bash
 python src/prep/ingest.py
 python src/prep/summary.py
@@ -67,9 +67,9 @@ You have two options:
 ### Training
 Basic training (single run):
 ```bash
-DATASET=full_raw SEED=40 IN_LEN=52 OUT_LEN=16 STATICS=1 EPOCHS=50 \
 python src/scripts/separate/temporal/kunz_darts/tft_train.py
 ```
+The training/eval scripts read run parameters from `configs/tft.yaml` (dataset, seed, in/out length, epochs, statics, etc.).
 
 Outputs:
 - `outputs/<MODEL>/<RUN_NAME>/`: model artifacts and checkpoints
@@ -78,18 +78,17 @@ Outputs:
 ### Evaluation
 Evaluation generates predictions and metrics:
 ```bash
-DATASET=full_raw SEED=40 IN_LEN=52 OUT_LEN=16 STATICS=1 \
 python src/scripts/separate/temporal/kunz_darts/tft_eval.py
 ```
 
 Outputs per run:
-- `predictions/pred.parquet`: historical forecasts
-- `metrics.parquet`: evaluation metrics by horizon
-- `skill_by_horizon.parquet`: skill vs persistence by horizon
+- `outputs/TFT/<RUN_NAME>/predictions/pred.parquet`: historical forecasts
+- `outputs/TFT/<RUN_NAME>/metrics.parquet`: evaluation metrics by horizon
+- `outputs/TFT/<RUN_NAME>/skill_by_horizon.parquet`: skill vs persistence by horizon
 
 ### Temporal predictions: how they work
 TFT produces historical forecasts over the evaluation period using the date-based split.
-The output `predictions/pred.parquet` contains per-series forecasts with horizons in weeks.
+The output `outputs/TFT/<RUN_NAME>/predictions/pred.parquet` contains per-series forecasts with horizons in weeks.
 
 ### Sweeps
 To run multi-seed sweeps and log metrics:
@@ -99,7 +98,7 @@ python src/scripts/separate/temporal/kunz_darts/tft_runs.py
 
 This writes `reports/metrics/metrics.csv` with timing and selected summary values.
 
-For multi-seed runs on several GPUs in parallel, run the contents of jobs/training.
+For multi-seed runs on several GPUs in parallel, run the contents of `cluster/jobs/training`.
 
 ### Metrics summary
 Aggregate run metrics into a summary table:
@@ -108,8 +107,8 @@ python src/analysis/build_tft_metrics_summary.py
 ```
 
 Outputs:
-- `reports/metrics/tft_metrics_summary.csv`
-- `reports/metrics/tft_metrics_summary_sparse.csv`
+- `reports/tft/metrics/tft_metrics_summary.csv`
+- `reports/tft/metrics/tft_metrics_summary_sparse.csv`
 
 ## Spatial interpolation (kriging)
 Pick one of these:
