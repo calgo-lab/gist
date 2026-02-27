@@ -118,6 +118,8 @@ spec:
           cfg["training"]["batch_size"] = 4096
           cfg["training"]["seed"] = int(os.environ["SEED"])
           cfg["training"]["num_workers"] = 10
+          cfg["training"]["lr"] = 3e-4
+          cfg["training"]["grad_clip"] = 1.0
           cfg["training"]["early_stopping"] = {
             "monitor": "val_loss",
             "patience": 5,
