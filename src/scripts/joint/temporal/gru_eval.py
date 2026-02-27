@@ -191,15 +191,15 @@ def main():
         raise ValueError("No windows created. Check data length and in/out lengths.")
 
     end_times = np.array([m[2] for m in meta])
-    val_mask = (end_times > np.datetime64(TRAIN_CUTOFF)) & (end_times <= np.datetime64(VAL_CUTOFF))
-    if val_mask.sum() == 0:
-        raise ValueError("No validation windows found before VAL_CUTOFF.")
+    test_mask = end_times > np.datetime64(VAL_CUTOFF)
+    if test_mask.sum() == 0:
+        raise ValueError("No test windows found after VAL_CUTOFF.")
 
-    x_past_val = x_past_all[val_mask]
-    x_future_val = x_future_all[val_mask]
-    y_val = y_all[val_mask]
-    x_static_val = x_static_all[val_mask]
-    meta_val = [m for i, m in enumerate(meta) if val_mask[i]]
+    x_past_val = x_past_all[test_mask]
+    x_future_val = x_future_all[test_mask]
+    y_val = y_all[test_mask]
+    x_static_val = x_static_all[test_mask]
+    meta_val = [m for i, m in enumerate(meta) if test_mask[i]]
 
     x_past_cov = cov_scaler.transform(x_past_val[:, :, 1:].reshape(-1, len(COV_COLS))).reshape(x_past_val[:, :, 1:].shape)
     x_future_val = cov_scaler.transform(x_future_val.reshape(-1, len(COV_COLS))).reshape(x_future_val.shape)
