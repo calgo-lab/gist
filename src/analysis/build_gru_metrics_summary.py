@@ -226,8 +226,8 @@ def main() -> None:
     # Plot NSE by horizon for each run
     fig, ax = plt.subplots(figsize=(9, 5))
     plot_df = final[
-        ~final["run"].str.contains("_sample", na=False)
-        & ~final["run"].str.contains("_ep1_", na=False)
+        final["run"].str.contains("_ep50_", na=False)
+        & final["run"].str.contains("spf0p8", na=False)
     ].copy()
     for run_label in plot_df["run"].unique():
         sub = plot_df[plot_df["run"] == run_label].sort_values("horizon")
@@ -236,16 +236,16 @@ def main() -> None:
     # Overlay a TFT reference line (if available) for direct comparison in one figure.
     if TFT_SUMMARY_CSV.exists():
         tft = pd.read_csv(TFT_SUMMARY_CSV)
-        tft_ep1 = tft[tft["run"] == "robert_ep1_full_raw"].copy()
-        if not tft_ep1.empty:
-            tft_ep1 = tft_ep1.sort_values("horizon")
+        tft_ref = tft[tft["run"] == "robert_ep50_full_merged_spatial_split"].copy()
+        if not tft_ref.empty:
+            tft_ref = tft_ref.sort_values("horizon")
             ax.plot(
-                tft_ep1["horizon"],
-                tft_ep1["NSE"],
+                tft_ref["horizon"],
+                tft_ref["NSE"],
                 linestyle="--",
                 linewidth=2,
                 color="black",
-                label="tft_robert_ep1_full_raw",
+                label="tft_ep50_full_merged_spatial_split",
             )
 
     ax.set_xlabel("Forecast horizon (weeks)")
