@@ -7,5 +7,8 @@
 # Python cache directories
 __pycache__/
 
-# Local untracked TFT artifacts under outputs
-outputs/TFT/
+# Large output and experiment artifacts
+outputs/
+wandb/
+logs/
+experiments/
