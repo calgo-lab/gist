@@ -41,8 +41,10 @@ def _run_label(
     dataset: str,
     spatial_split: bool,
     split_tag: str,
+    num_layers: int | None = None,
 ) -> str:
-    label = f"gru_in{in_len}_out{out_len}_ep{epochs}_{dataset}"
+    prefix = f"gru_l{num_layers}" if num_layers is not None else "gru"
+    label = f"{prefix}_in{in_len}_out{out_len}_ep{epochs}_{dataset}"
     if spatial_split:
         if dataset == "full_merged":
             label = f"{label}_spatial_split"
@@ -97,23 +99,42 @@ def _collect_runs() -> pd.DataFrame:
         return pd.DataFrame()
 
     for run_dir in sorted(GRU_OUTPUT_ROOT.glob("GRU_FCOV_*")):
-        m = RUN_RE.match(run_dir.name)
-        if m is None:
-            continue
-
         pred_path = run_dir / "predictions" / "pred.parquet"
         if not pred_path.exists():
             continue
 
         run_sig = run_dir.name.replace("GRU_FCOV_", "", 1)
         split_tag = _split_tag(run_sig)
-        in_len = int(m.group("in_len"))
-        out_len = int(m.group("out_len"))
-        epochs = int(m.group("epochs"))
-        seed = int(m.group("seed"))
-        dataset = m.group("dataset")
         spatial_split = _is_spatial_split(run_sig)
+        num_layers = None
 
+        m = RUN_RE.match(run_dir.name)
+        if m is not None:
+            in_len = int(m.group("in_len"))
+            out_len = int(m.group("out_len"))
+            epochs = int(m.group("epochs"))
+            seed = int(m.group("seed"))
+            dataset = m.group("dataset")
+        else:
+            # Regex didn't match (e.g. custom run_sig) — fall back to meta.yaml
+            meta_path = run_dir / "meta.yaml"
+            if not meta_path.exists():
+                continue
+            with open(meta_path, "r", encoding="utf-8") as f:
+                meta_fb = yaml.safe_load(f) or {}
+            if not isinstance(meta_fb, dict):
+                continue
+            required = ["in_len", "out_len", "epochs", "seed", "dataset"]
+            if not all(k in meta_fb for k in required):
+                continue
+            in_len = int(meta_fb["in_len"])
+            out_len = int(meta_fb["out_len"])
+            epochs = int(meta_fb["epochs"])
+            seed = int(meta_fb["seed"])
+            dataset = str(meta_fb["dataset"])
+            num_layers = meta_fb.get("num_layers")
+
+        # Always override with meta.yaml values when available
         meta_path = run_dir / "meta.yaml"
         if meta_path.exists():
             with open(meta_path, "r", encoding="utf-8") as f:
@@ -124,6 +145,8 @@ def _collect_runs() -> pd.DataFrame:
                 epochs = int(meta.get("epochs", epochs))
                 seed = int(meta.get("seed", seed))
                 dataset = str(meta.get("dataset", dataset))
+                if num_layers is None:
+                    num_layers = meta.get("num_layers")
 
         pred_df = pd.read_parquet(pred_path)
         if pred_df.empty:
@@ -138,6 +161,7 @@ def _collect_runs() -> pd.DataFrame:
             dataset=dataset,
             spatial_split=spatial_split,
             split_tag=split_tag,
+            num_layers=num_layers,
         )
         metrics_well_h["in_len"] = in_len
         metrics_well_h["out_len"] = out_len
@@ -168,16 +192,17 @@ def _aggregate(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _run_sort_key(run_name: str) -> tuple:
-    m = re.match(r"^gru_in(\d+)_out(\d+)_ep(\d+)_(.+)$", run_name)
+    m = re.match(r"^gru(?:_l(\d+))?_in(\d+)_out(\d+)_ep(\d+)_(.+)$", run_name)
     if m is None:
-        return (9999, 9999, 9999, run_name)
-    in_len = int(m.group(1))
-    out_len = int(m.group(2))
-    epochs = int(m.group(3))
-    dataset = m.group(4)
+        return (9999, 9999, 9999, 9999, run_name)
+    num_layers = int(m.group(1)) if m.group(1) else 0
+    in_len = int(m.group(2))
+    out_len = int(m.group(3))
+    epochs = int(m.group(4))
+    dataset = m.group(5)
     dataset_order = {"full_raw": 0, "full_merged_spatial_split": 1, "full_merged": 2, "sample": 3}
     d_ord = dataset_order.get(dataset, 9)
-    return (d_ord, in_len, out_len, epochs, run_name)
+    return (d_ord, in_len, out_len, epochs, num_layers, run_name)
 
 
 def main() -> None:
@@ -200,7 +225,10 @@ def main() -> None:
 
     # Plot NSE by horizon for each run
     fig, ax = plt.subplots(figsize=(9, 5))
-    plot_df = final[~final["run"].str.contains("_sample", na=False)].copy()
+    plot_df = final[
+        ~final["run"].str.contains("_sample", na=False)
+        & ~final["run"].str.contains("_ep1_", na=False)
+    ].copy()
     for run_label in plot_df["run"].unique():
         sub = plot_df[plot_df["run"] == run_label].sort_values("horizon")
         ax.plot(sub["horizon"], sub["NSE"], marker="o", markersize=4, label=run_label)
