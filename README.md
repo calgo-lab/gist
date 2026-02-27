@@ -6,7 +6,7 @@ Last update: February 26th, 2026
 The first step is recreating the baseline from Kunz et al. (2024), accessible here:
 https://doi.org/10.5194/egusphere-2024-3484
 
-That first step is forecasting of groundwater levels.
+That first step is forecasting of groundwater levels
 
 ## What is done in this repo
 - Temporal forecasting of groundwater levels (TFT)
