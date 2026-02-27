@@ -1,5 +1,6 @@
 from pathlib import Path
 import pickle
+import re
 import sys
 import time
 
@@ -14,10 +15,14 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[4]
 SRC_ROOT = ROOT / "src"
+SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
 from libs.spatial_split import load_or_create_split, resolve_split_path
+from gru_model import GRUSeq2Seq
 
 STATIC_FEATURE_REGEX = (
     "eumohp_(.+)_(.+)_(.*[1])"
@@ -35,42 +40,17 @@ VAL_CUTOFF = pd.Timestamp("20200101")
 
 
 class Seq2SeqDataset(Dataset):
-    def __init__(self, x_past, x_future, y_future):
+    def __init__(self, x_past, x_future, y_future, x_static):
         self.x_past = x_past
         self.x_future = x_future
         self.y_future = y_future
+        self.x_static = x_static
 
     def __len__(self):
         return self.x_past.shape[0]
 
     def __getitem__(self, idx):
-        return self.x_past[idx], self.x_future[idx], self.y_future[idx]
-
-
-class GRUSeq2Seq(nn.Module):
-    def __init__(self, past_input_size, future_input_size, hidden_size, num_layers, dropout, out_len):
-        super().__init__()
-        self.encoder = nn.GRU(
-            input_size=past_input_size,
-            hidden_size=hidden_size,
-            num_layers=num_layers,
-            batch_first=True,
-            dropout=dropout if num_layers > 1 else 0.0,
-        )
-        self.decoder = nn.GRU(
-            input_size=future_input_size,
-            hidden_size=hidden_size,
-            num_layers=num_layers,
-            batch_first=True,
-            dropout=dropout if num_layers > 1 else 0.0,
-        )
-        self.head = nn.Linear(hidden_size, 1)
-        self.out_len = out_len
-
-    def forward(self, x_past, x_future):
-        _, h = self.encoder(x_past)
-        dec_out, _ = self.decoder(x_future, h)
-        return self.head(dec_out).squeeze(-1)
+        return self.x_past[idx], self.x_future[idx], self.y_future[idx], self.x_static[idx]
 
 
 def _load_yaml(path):
@@ -110,11 +90,14 @@ def _load_dataset(path):
     return df
 
 
-def _build_windows(df, in_len, out_len, cov_cols, target_col="gws"):
+def _build_windows(df, in_len, out_len, cov_cols, well_stats, well_static, target_col="gws"):
     x_past_rows = []
     x_future_rows = []
     y_rows = []
+    x_static_rows = []
     meta = []
+
+    static_size = len(next(iter(well_static.values()))) if well_static else 0
 
     for gid, g in df.groupby("id"):
         g = g.sort_values("datum")
@@ -122,16 +105,22 @@ def _build_windows(df, in_len, out_len, cov_cols, target_col="gws"):
         vals_cov = g[cov_cols].to_numpy(dtype=np.float32)
         times = g["datum"].to_numpy()
 
+        mean_y, std_y = well_stats.get(gid, (float(vals_y.mean()), max(float(vals_y.std()), 1e-6)))
+        vals_y_norm = (vals_y - mean_y) / std_y
+        static_vec = well_static.get(gid, np.zeros(static_size, dtype=np.float32))
+
         for i in range(in_len, len(g) - out_len + 1):
-            x_past_rows.append(np.concatenate([vals_y[i - in_len : i].reshape(in_len, 1), vals_cov[i - in_len : i]], axis=1))
+            x_past_rows.append(np.concatenate([vals_y_norm[i - in_len : i].reshape(in_len, 1), vals_cov[i - in_len : i]], axis=1))
             x_future_rows.append(vals_cov[i : i + out_len])
-            y_rows.append(vals_y[i : i + out_len])
+            y_rows.append(vals_y_norm[i : i + out_len])
+            x_static_rows.append(static_vec)
             meta.append((gid, times[i + out_len - 1]))
 
     x_past = np.stack(x_past_rows) if x_past_rows else np.zeros((0, in_len, 1 + len(cov_cols)), dtype=np.float32)
     x_future = np.stack(x_future_rows) if x_future_rows else np.zeros((0, out_len, len(cov_cols)), dtype=np.float32)
     y = np.stack(y_rows) if y_rows else np.zeros((0, out_len), dtype=np.float32)
-    return x_past, x_future, y, meta
+    x_static = np.stack(x_static_rows) if x_static_rows else np.zeros((0, static_size), dtype=np.float32)
+    return x_past, x_future, y, x_static, meta
 
 
 def main():
@@ -150,6 +139,8 @@ def main():
     out_len = int(data_cfg_tft.get("out_len", 16))
     batch_size = int(training_cfg.get("batch_size", 1024))
     n_epochs = int(training_cfg.get("epochs", 20))
+    lr = float(training_cfg.get("lr", 3e-4))
+    grad_clip = float(training_cfg.get("grad_clip", 1.0))
     es_cfg = training_cfg.get("early_stopping", {}) if isinstance(training_cfg.get("early_stopping", {}), dict) else {}
     es_patience = int(es_cfg.get("patience", 5))
     es_min_delta = float(es_cfg.get("min_delta", 0.0))
@@ -189,7 +180,34 @@ def main():
         save_path=split_path,
     )
 
-    x_past_all, x_future_all, y_all, meta = _build_windows(gws_bb, in_len, out_len, COV_COLS)
+    # Per-well GWS stats from training period only (for per-well normalization)
+    train_df = gws_bb[gws_bb["datum"] <= TRAIN_CUTOFF]
+    well_stats = {}
+    for gid, g in train_df.groupby("id"):
+        vals = g["gws"].dropna().to_numpy(dtype=np.float32)
+        if len(vals) > 0:
+            well_stats[gid] = (float(vals.mean()), float(max(vals.std(), 1e-6)))
+
+    # Static features
+    static_cols = [c for c in gws_bb.columns if re.search(STATIC_FEATURE_REGEX, c)]
+    well_static = {}
+    for gid, g in gws_bb.groupby("id"):
+        row = g[static_cols].iloc[0].fillna(0.0).to_numpy(dtype=np.float32)
+        well_static[gid] = row
+
+    # Scale statics fit on all training wells
+    if static_cols and well_static:
+        static_scaler = StandardScaler()
+        all_static = np.stack([well_static[gid] for gid in well_static])
+        static_scaler.fit(all_static)
+        for gid in well_static:
+            well_static[gid] = static_scaler.transform(well_static[gid].reshape(1, -1)).squeeze(0)
+    else:
+        static_scaler = None
+
+    x_past_all, x_future_all, y_all, x_static_all, meta = _build_windows(
+        gws_bb, in_len, out_len, COV_COLS, well_stats, well_static
+    )
     if not meta:
         raise ValueError("No windows created. Check data length and in/out lengths.")
 
@@ -204,12 +222,13 @@ def main():
     x_past_train = x_past_all[train_mask]
     x_future_train = x_future_all[train_mask]
     y_train = y_all[train_mask]
+    x_static_train = x_static_all[train_mask]
     x_past_val = x_past_all[val_mask]
     x_future_val = x_future_all[val_mask]
     y_val = y_all[val_mask]
+    x_static_val = x_static_all[val_mask]
 
     cov_scaler = StandardScaler()
-    y_scaler = StandardScaler()
     cov_train = np.concatenate(
         [
             x_past_train[:, :, 1:].reshape(-1, len(COV_COLS)),
@@ -218,23 +237,28 @@ def main():
         axis=0,
     )
     cov_scaler.fit(cov_train)
-    y_scaler.fit(x_past_train[:, :, 0].reshape(-1, 1))
 
     x_past_train_cov = cov_scaler.transform(x_past_train[:, :, 1:].reshape(-1, len(COV_COLS))).reshape(x_past_train[:, :, 1:].shape)
     x_past_val_cov = cov_scaler.transform(x_past_val[:, :, 1:].reshape(-1, len(COV_COLS))).reshape(x_past_val[:, :, 1:].shape)
     x_future_train = cov_scaler.transform(x_future_train.reshape(-1, len(COV_COLS))).reshape(x_future_train.shape)
     x_future_val = cov_scaler.transform(x_future_val.reshape(-1, len(COV_COLS))).reshape(x_future_val.shape)
 
-    past_train_scaled = y_scaler.transform(x_past_train[:, :, 0].reshape(-1, 1)).reshape(x_past_train[:, :, 0].shape)
-    past_val_scaled = y_scaler.transform(x_past_val[:, :, 0].reshape(-1, 1)).reshape(x_past_val[:, :, 0].shape)
-    y_train_scaled = y_scaler.transform(y_train.reshape(-1, 1)).reshape(y_train.shape)
-    y_val_scaled = y_scaler.transform(y_val.reshape(-1, 1)).reshape(y_val.shape)
+    # y and x_past[:, :, 0] are already per-well normalized; reconstruct with scaled covariates
+    x_past_train = np.concatenate([x_past_train[:, :, :1], x_past_train_cov], axis=2)
+    x_past_val = np.concatenate([x_past_val[:, :, :1], x_past_val_cov], axis=2)
 
-    x_past_train = np.concatenate([past_train_scaled.reshape(-1, in_len, 1), x_past_train_cov], axis=2)
-    x_past_val = np.concatenate([past_val_scaled.reshape(-1, in_len, 1), x_past_val_cov], axis=2)
-
-    train_ds = Seq2SeqDataset(torch.from_numpy(x_past_train), torch.from_numpy(x_future_train), torch.from_numpy(y_train_scaled))
-    val_ds = Seq2SeqDataset(torch.from_numpy(x_past_val), torch.from_numpy(x_future_val), torch.from_numpy(y_val_scaled))
+    train_ds = Seq2SeqDataset(
+        torch.from_numpy(x_past_train),
+        torch.from_numpy(x_future_train),
+        torch.from_numpy(y_train),
+        torch.from_numpy(x_static_train),
+    )
+    val_ds = Seq2SeqDataset(
+        torch.from_numpy(x_past_val),
+        torch.from_numpy(x_future_val),
+        torch.from_numpy(y_val),
+        torch.from_numpy(x_static_val),
+    )
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=False)
     val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, drop_last=False)
 
@@ -246,8 +270,9 @@ def main():
         num_layers=num_layers,
         dropout=dropout,
         out_len=out_len,
+        static_input_size=len(static_cols),
     ).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     loss_fn = nn.MSELoss()
 
     best_val = None
@@ -262,6 +287,7 @@ def main():
         "num_layers": num_layers,
         "dropout": dropout,
         "out_len": out_len,
+        "static_input_size": len(static_cols),
     }
 
     for epoch in range(1, n_epochs + 1):
@@ -270,24 +296,27 @@ def main():
 
         model.train()
         train_losses = []
-        for xb_past, xb_future, yb in train_loader:
+        for xb_past, xb_future, yb, xb_static in train_loader:
             xb_past = xb_past.to(device)
             xb_future = xb_future.to(device)
             yb = yb.to(device)
+            xb_static = xb_static.to(device)
             optimizer.zero_grad()
-            loss = loss_fn(model(xb_past, xb_future), yb)
+            loss = loss_fn(model(xb_past, xb_future, xb_static), yb)
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
             optimizer.step()
             train_losses.append(loss.item())
 
         model.eval()
         val_losses = []
         with torch.no_grad():
-            for xb_past, xb_future, yb in val_loader:
+            for xb_past, xb_future, yb, xb_static in val_loader:
                 xb_past = xb_past.to(device)
                 xb_future = xb_future.to(device)
                 yb = yb.to(device)
-                val_losses.append(loss_fn(model(xb_past, xb_future), yb).item())
+                xb_static = xb_static.to(device)
+                val_losses.append(loss_fn(model(xb_past, xb_future, xb_static), yb).item())
 
         train_loss = float(np.mean(train_losses))
         val_loss = float(np.mean(val_losses))
@@ -310,6 +339,7 @@ def main():
                 "num_layers": num_layers,
                 "dropout": dropout,
                 "out_len": out_len,
+                "static_input_size": len(static_cols),
             }
         else:
             no_improve += 1
@@ -333,7 +363,7 @@ def main():
 
     torch.save(best_state, run_dir / "model.pt")
     with (run_dir / "scalers.pkl").open("wb") as f:
-        pickle.dump({"cov_scaler": cov_scaler, "y_scaler": y_scaler}, f)
+        pickle.dump({"cov_scaler": cov_scaler, "well_stats": well_stats, "static_scaler": static_scaler}, f)
 
     meta_out = {
         "dataset": dataset,
@@ -347,6 +377,9 @@ def main():
         "hidden_size": hidden_size,
         "num_layers": num_layers,
         "dropout": dropout,
+        "lr": lr,
+        "grad_clip": grad_clip,
+        "n_static": len(static_cols),
         "early_stopping": {"patience": es_patience, "min_delta": es_min_delta, "mode": es_mode},
         "cov_cols": COV_COLS,
     }

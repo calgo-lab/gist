@@ -1,5 +1,6 @@
 from pathlib import Path
 import pickle
+import re
 import sys
 
 import numpy as np
@@ -7,15 +8,18 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import torch
-from torch import nn
 import yaml
 
 ROOT = Path(__file__).resolve().parents[4]
 SRC_ROOT = ROOT / "src"
+SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
 from libs.spatial_split import load_or_create_split, resolve_split_path
+from gru_model import GRUSeq2Seq
 
 STATIC_FEATURE_REGEX = (
     "eumohp_(.+)_(.+)_(.*[1])"
@@ -30,32 +34,6 @@ STATIC_FEATURE_REGEX = (
 COV_COLS = ["tas_5km", "hurs_5km", "pr_5km", "tag_sin", "tag_cos"]
 TRAIN_CUTOFF = pd.Timestamp("20160101")
 VAL_CUTOFF = pd.Timestamp("20200101")
-
-
-class GRUSeq2Seq(nn.Module):
-    def __init__(self, past_input_size, future_input_size, hidden_size, num_layers, dropout, out_len):
-        super().__init__()
-        self.encoder = nn.GRU(
-            input_size=past_input_size,
-            hidden_size=hidden_size,
-            num_layers=num_layers,
-            batch_first=True,
-            dropout=dropout if num_layers > 1 else 0.0,
-        )
-        self.decoder = nn.GRU(
-            input_size=future_input_size,
-            hidden_size=hidden_size,
-            num_layers=num_layers,
-            batch_first=True,
-            dropout=dropout if num_layers > 1 else 0.0,
-        )
-        self.head = nn.Linear(hidden_size, 1)
-        self.out_len = out_len
-
-    def forward(self, x_past, x_future):
-        _, h = self.encoder(x_past)
-        dec_out, _ = self.decoder(x_future, h)
-        return self.head(dec_out).squeeze(-1)
 
 
 def _load_yaml(path):
@@ -95,11 +73,14 @@ def _load_dataset(path):
     return df
 
 
-def _build_windows(df, in_len, out_len, cov_cols, target_col="gws"):
+def _build_windows(df, in_len, out_len, cov_cols, well_stats, well_static, target_col="gws"):
     x_past_rows = []
     x_future_rows = []
     y_rows = []
+    x_static_rows = []
     meta = []
+
+    static_size = len(next(iter(well_static.values()))) if well_static else 0
 
     for gid, g in df.groupby("id"):
         g = g.sort_values("datum")
@@ -107,16 +88,22 @@ def _build_windows(df, in_len, out_len, cov_cols, target_col="gws"):
         vals_cov = g[cov_cols].to_numpy(dtype=np.float32)
         times = g["datum"].to_numpy()
 
+        mean_y, std_y = well_stats.get(gid, (float(vals_y.mean()), max(float(vals_y.std()), 1e-6)))
+        vals_y_norm = (vals_y - mean_y) / std_y
+        static_vec = well_static.get(gid, np.zeros(static_size, dtype=np.float32))
+
         for i in range(in_len, len(g) - out_len + 1):
-            x_past_rows.append(np.concatenate([vals_y[i - in_len : i].reshape(in_len, 1), vals_cov[i - in_len : i]], axis=1))
+            x_past_rows.append(np.concatenate([vals_y_norm[i - in_len : i].reshape(in_len, 1), vals_cov[i - in_len : i]], axis=1))
             x_future_rows.append(vals_cov[i : i + out_len])
-            y_rows.append(vals_y[i : i + out_len])
+            y_rows.append(vals_y_norm[i : i + out_len])
+            x_static_rows.append(static_vec)
             meta.append((gid, times[i], times[i + out_len - 1], times[i : i + out_len]))
 
     x_past = np.stack(x_past_rows) if x_past_rows else np.zeros((0, in_len, 1 + len(cov_cols)), dtype=np.float32)
     x_future = np.stack(x_future_rows) if x_future_rows else np.zeros((0, out_len, len(cov_cols)), dtype=np.float32)
     y = np.stack(y_rows) if y_rows else np.zeros((0, out_len), dtype=np.float32)
-    return x_past, x_future, y, meta
+    x_static = np.stack(x_static_rows) if x_static_rows else np.zeros((0, static_size), dtype=np.float32)
+    return x_past, x_future, y, x_static, meta
 
 
 def main():
@@ -160,20 +147,6 @@ def main():
         save_path=split_path,
     )
 
-    x_past_all, x_future_all, y_all, meta = _build_windows(gws_bb, in_len, out_len, COV_COLS)
-    if not meta:
-        raise ValueError("No windows created. Check data length and in/out lengths.")
-
-    end_times = np.array([m[2] for m in meta])
-    val_mask = (end_times > np.datetime64(TRAIN_CUTOFF)) & (end_times <= np.datetime64(VAL_CUTOFF))
-    if val_mask.sum() == 0:
-        raise ValueError("No validation windows found before VAL_CUTOFF.")
-
-    x_past_val = x_past_all[val_mask]
-    x_future_val = x_future_all[val_mask]
-    y_val = y_all[val_mask]
-    meta_val = [m for i, m in enumerate(meta) if val_mask[i]]
-
     run_sig = _resolve_run_sig(
         tft_cfg=tft_cfg,
         dataset=dataset,
@@ -197,12 +170,41 @@ def main():
     with scaler_path.open("rb") as f:
         scalers = pickle.load(f)
     cov_scaler = scalers["cov_scaler"]
-    y_scaler = scalers["y_scaler"]
+    well_stats = scalers["well_stats"]
+    static_scaler = scalers.get("static_scaler")
+
+    # Build static features using same regex as train
+    static_cols = [c for c in gws_bb.columns if re.search(STATIC_FEATURE_REGEX, c)]
+    well_static = {}
+    for gid, g in gws_bb.groupby("id"):
+        row = g[static_cols].iloc[0].fillna(0.0).to_numpy(dtype=np.float32)
+        well_static[gid] = row
+
+    if static_scaler is not None and well_static:
+        for gid in well_static:
+            well_static[gid] = static_scaler.transform(well_static[gid].reshape(1, -1)).squeeze(0)
+
+    x_past_all, x_future_all, y_all, x_static_all, meta = _build_windows(
+        gws_bb, in_len, out_len, COV_COLS, well_stats, well_static
+    )
+    if not meta:
+        raise ValueError("No windows created. Check data length and in/out lengths.")
+
+    end_times = np.array([m[2] for m in meta])
+    val_mask = (end_times > np.datetime64(TRAIN_CUTOFF)) & (end_times <= np.datetime64(VAL_CUTOFF))
+    if val_mask.sum() == 0:
+        raise ValueError("No validation windows found before VAL_CUTOFF.")
+
+    x_past_val = x_past_all[val_mask]
+    x_future_val = x_future_all[val_mask]
+    y_val = y_all[val_mask]
+    x_static_val = x_static_all[val_mask]
+    meta_val = [m for i, m in enumerate(meta) if val_mask[i]]
 
     x_past_cov = cov_scaler.transform(x_past_val[:, :, 1:].reshape(-1, len(COV_COLS))).reshape(x_past_val[:, :, 1:].shape)
     x_future_val = cov_scaler.transform(x_future_val.reshape(-1, len(COV_COLS))).reshape(x_future_val.shape)
-    past_scaled = y_scaler.transform(x_past_val[:, :, 0].reshape(-1, 1)).reshape(x_past_val[:, :, 0].shape)
-    x_past_val = np.concatenate([past_scaled.reshape(-1, in_len, 1), x_past_cov], axis=2)
+    # x_past[:, :, 0] is already per-well normalized; reconstruct with scaled covariates
+    x_past_val = np.concatenate([x_past_val[:, :, :1], x_past_cov], axis=2)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     checkpoint = torch.load(model_path, map_location=device)
@@ -213,6 +215,7 @@ def main():
         num_layers=checkpoint["num_layers"],
         dropout=checkpoint["dropout"],
         out_len=checkpoint["out_len"],
+        static_input_size=checkpoint.get("static_input_size", 0),
     ).to(device)
     model.load_state_dict(checkpoint["model"])
     model.eval()
@@ -223,9 +226,17 @@ def main():
         for start in range(0, len(x_past_val), eval_batch_size):
             xp = torch.from_numpy(x_past_val[start:start + eval_batch_size]).to(device)
             xf = torch.from_numpy(x_future_val[start:start + eval_batch_size]).to(device)
-            chunks.append(model(xp, xf).cpu().numpy())
+            xs = torch.from_numpy(x_static_val[start:start + eval_batch_size]).to(device)
+            chunks.append(model(xp, xf, xs).cpu().numpy())
         pred = np.concatenate(chunks, axis=0)
-    pred = y_scaler.inverse_transform(pred.reshape(-1, 1)).reshape(pred.shape)
+
+    # Denormalize per-well
+    pred_denorm = pred.copy()
+    y_val_denorm = y_val.copy()
+    for i, (gid, _start_time, _end_time, _times) in enumerate(meta_val):
+        mean_y, std_y = well_stats.get(gid, (0.0, 1.0))
+        pred_denorm[i] = pred[i] * std_y + mean_y
+        y_val_denorm[i] = y_val[i] * std_y + mean_y
 
     rows = []
     for i, (gid, start_time, _, times) in enumerate(meta_val):
@@ -236,8 +247,8 @@ def main():
                     "startzeitpunkt": pd.to_datetime(start_time),
                     "datum": pd.to_datetime(times[h]),
                     "horizon": h + 1,
-                    "gws_forecast": float(pred[i, h]),
-                    "gws": float(y_val[i, h]),
+                    "gws_forecast": float(pred_denorm[i, h]),
+                    "gws": float(y_val_denorm[i, h]),
                 }
             )
     pred_df = pd.DataFrame(rows)
