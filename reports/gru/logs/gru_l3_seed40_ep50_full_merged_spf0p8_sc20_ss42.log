@@ -1,46 +1,9 @@
 === TRAIN gru_l3_seed40_ep50_full_merged_spf0p8_sc20_ss42 ===
-epoch=1 train_loss=0.033382 val_loss=0.000298 time=45.0s
-epoch=2 train_loss=0.000713 val_loss=0.000393 time=34.7s
-epoch=3 train_loss=0.000459 val_loss=0.000338 time=34.6s
-epoch=4 train_loss=0.000391 val_loss=0.000094 time=34.5s
-epoch=5 train_loss=0.000353 val_loss=0.000140 time=34.5s
-epoch=6 train_loss=0.000322 val_loss=0.000760 time=34.5s
-epoch=7 train_loss=0.000313 val_loss=0.000079 time=34.5s
-epoch=8 train_loss=0.000273 val_loss=0.000297 time=34.5s
-epoch=9 train_loss=0.000272 val_loss=0.000155 time=34.4s
-
-real	8m2.128s
-user	6m14.876s
-sys	1m24.139s
-=== EVAL gru_l3_seed40_ep50_full_merged_spf0p8_sc20_ss42 ===
-/tmp/gwl-gru-gru_l3_seed40_ep50_full_merged_spf0p8_sc20_ss42/src/scripts/joint/temporal/gru_eval.py:208: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
-  checkpoint = torch.load(model_path, map_location=device)
-Traceback (most recent call last):
-  File "/tmp/gwl-gru-gru_l3_seed40_ep50_full_merged_spf0p8_sc20_ss42/src/scripts/joint/temporal/gru_eval.py", line 255, in <module>
-    main()
-  File "/tmp/gwl-gru-gru_l3_seed40_ep50_full_merged_spf0p8_sc20_ss42/src/scripts/joint/temporal/gru_eval.py", line 221, in main
-    pred = model(
-           ^^^^^^
-  File "/storage/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1553, in _wrapped_call_impl
-    return self._call_impl(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/storage/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1562, in _call_impl
-    return forward_call(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/tmp/gwl-gru-gru_l3_seed40_ep50_full_merged_spf0p8_sc20_ss42/src/scripts/joint/temporal/gru_eval.py", line 56, in forward
-    _, h = self.encoder(x_past)
-           ^^^^^^^^^^^^^^^^^^^^
-  File "/storage/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1553, in _wrapped_call_impl
-    return self._call_impl(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/storage/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1562, in _call_impl
-    return forward_call(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/storage/venv/lib/python3.12/site-packages/torch/nn/modules/rnn.py", line 1139, in forward
-    result = _VF.gru(input, hx, self._flat_weights, self.bias, self.num_layers,
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 70.95 GiB. GPU 0 has a total capacity of 39.49 GiB of which 33.67 GiB is free. Process 1737797 has 5.81 GiB memory in use. Of the allocated memory 5.33 GiB is allocated by PyTorch, and 3.30 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
-
-real	0m23.580s
-user	0m36.190s
-sys	0m13.848s
+epoch=1 train_loss=0.299988 val_loss=0.227532 time=41.9s
+epoch=2 train_loss=0.192183 val_loss=0.166460 time=41.1s
+epoch=3 train_loss=0.150381 val_loss=0.131967 time=41.2s
+epoch=4 train_loss=0.133317 val_loss=0.127109 time=41.1s
+epoch=5 train_loss=0.127591 val_loss=0.122544 time=41.0s
+epoch=6 train_loss=0.123425 val_loss=0.117192 time=41.0s
+epoch=7 train_loss=0.120017 val_loss=0.115818 time=41.0s
+epoch=8 train_loss=0.117022 val_loss=0.112816 time=41.1s

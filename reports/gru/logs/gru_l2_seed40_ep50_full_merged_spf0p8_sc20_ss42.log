@@ -1,45 +1,4 @@
 === TRAIN gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42 ===
-epoch=1 train_loss=0.037467 val_loss=0.000236 time=40.1s
-epoch=2 train_loss=0.000653 val_loss=0.000153 time=29.7s
-epoch=3 train_loss=0.000401 val_loss=0.000119 time=29.7s
-epoch=4 train_loss=0.000240 val_loss=0.000067 time=29.7s
-epoch=5 train_loss=0.000230 val_loss=0.000118 time=29.6s
-epoch=6 train_loss=0.000233 val_loss=0.000149 time=29.7s
-epoch=7 train_loss=0.000205 val_loss=0.000734 time=29.7s
-epoch=8 train_loss=0.000221 val_loss=0.000214 time=29.7s
-
-real	6m53.746s
-user	5m1.702s
-sys	1m23.957s
-=== EVAL gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42 ===
-/tmp/gwl-gru-gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42/src/scripts/joint/temporal/gru_eval.py:208: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
-  checkpoint = torch.load(model_path, map_location=device)
-Traceback (most recent call last):
-  File "/tmp/gwl-gru-gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42/src/scripts/joint/temporal/gru_eval.py", line 255, in <module>
-    main()
-  File "/tmp/gwl-gru-gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42/src/scripts/joint/temporal/gru_eval.py", line 221, in main
-    pred = model(
-           ^^^^^^
-  File "/storage/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1553, in _wrapped_call_impl
-    return self._call_impl(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/storage/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1562, in _call_impl
-    return forward_call(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/tmp/gwl-gru-gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42/src/scripts/joint/temporal/gru_eval.py", line 56, in forward
-    _, h = self.encoder(x_past)
-           ^^^^^^^^^^^^^^^^^^^^
-  File "/storage/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1553, in _wrapped_call_impl
-    return self._call_impl(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/storage/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1562, in _call_impl
-    return forward_call(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/storage/venv/lib/python3.12/site-packages/torch/nn/modules/rnn.py", line 1139, in forward
-    result = _VF.gru(input, hx, self._flat_weights, self.bias, self.num_layers,
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 70.61 GiB. GPU 0 has a total capacity of 39.49 GiB of which 33.84 GiB is free. Process 1734920 has 5.64 GiB memory in use. Of the allocated memory 5.16 GiB is allocated by PyTorch, and 2.81 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
-
-real	0m44.319s
-user	0m36.544s
-sys	0m18.117s
+epoch=1 train_loss=0.304283 val_loss=0.227197 time=46.9s
+epoch=2 train_loss=0.207206 val_loss=0.175770 time=37.3s
+epoch=3 train_loss=0.159178 val_loss=0.140473 time=37.3s
