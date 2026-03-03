@@ -28,6 +28,7 @@ fugue==0.9.1
 grpcio==1.75.1
 holidays==0.82
 idna==3.11
+ipykernel==7.2.0
 Jinja2==3.1.6
 joblib==1.5.2
 kiwisolver==1.4.9
