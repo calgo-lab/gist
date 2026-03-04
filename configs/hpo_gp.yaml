@@ -1,0 +1,12 @@
+name: gp_stability_v1
+max_trials: 9
+random_seed: 42
+objective:
+  metric: NSE_id_median
+  mode: max
+search_space:
+  kernel_type: [matern32]
+  isotropic: [true]
+  pretrain_steps: [100]
+  pretrain_lr: [0.0005, 0.001, 0.002]
+  jitter: [0.00001, 0.0001, 0.001]
