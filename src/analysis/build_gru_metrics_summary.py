@@ -2,6 +2,7 @@ from pathlib import Path
 import re
 
 import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import yaml
@@ -173,20 +174,28 @@ def sort_key(run_name: str) -> tuple:
 
 def plot_nse(final: pd.DataFrame) -> None:
     fig, ax = plt.subplots(figsize=(9, 5))
-
-    show = final[
+    plot_df = final[
         final["run"].str.contains("_ep50_", na=False)
         & final["run"].str.contains("spf0p8", na=False)
     ].copy()
-    for run in show["run"].unique():
-        s = show[show["run"] == run].sort_values("horizon")
-        ax.plot(s["horizon"], s["NSE"], marker="o", markersize=4, label=run)
+    for run_label in plot_df["run"].unique():
+        sub = plot_df[plot_df["run"] == run_label].sort_values("horizon")
+        ax.plot(sub["horizon"], sub["NSE"], marker="o", markersize=4, label=run_label)
 
-    if TFT_SUMMARY.exists():
-        tft = pd.read_csv(TFT_SUMMARY)
-        ref = tft[tft["run"] == "robert_ep50_full_merged_spatial_split"].sort_values("horizon")
-        if not ref.empty:
-            ax.plot(ref["horizon"], ref["NSE"], "--", linewidth=2, color="black", label="tft_ep50_full_merged_spatial_split")
+    # Overlay a TFT reference line (if available) for direct comparison in one figure.
+    if TFT_SUMMARY_CSV.exists():
+        tft = pd.read_csv(TFT_SUMMARY_CSV)
+        tft_ref = tft[tft["run"] == "robert_ep50_full_merged_spatial_split"].copy()
+        if not tft_ref.empty:
+            tft_ref = tft_ref.sort_values("horizon")
+            ax.plot(
+                tft_ref["horizon"],
+                tft_ref["NSE"],
+                linestyle="--",
+                linewidth=2,
+                color="black",
+                label="tft_ep50_full_merged_spatial_split",
+            )
 
     ax.set_xlabel("Forecast horizon (weeks)")
     ax.set_ylabel("NSE (median across wells)")
@@ -197,31 +206,16 @@ def plot_nse(final: pd.DataFrame) -> None:
     fig.savefig(FIG_DIR / "gru_nse_by_horizon.png", dpi=200)
     plt.close(fig)
 
+    sparse_horizons = [1, 8, 16]
+    sparse = final[final["horizon"].isin(sparse_horizons)].copy()
+    sparse = sparse[["horizon", "run", "NSE", "RMSE"]]
+    sparse["run_order"] = sparse["run"].map(run_order)
+    sparse = sparse.sort_values(["horizon", "run_order"]).drop(columns="run_order")
+    sparse.to_csv(SPARSE_TABLE_CSV, index=False)
 
-def main() -> None:
-    METRICS_DIR.mkdir(parents=True, exist_ok=True)
-    FIG_DIR.mkdir(parents=True, exist_ok=True)
-
-    raw = collect()
-    if raw.empty:
-        print("No GRU runs with predictions found. Nothing to summarize.")
-        return
-
-    final = aggregate(raw)
-    order = {r: i for i, r in enumerate(sorted(final["run"].unique(), key=sort_key))}
-    final = final.assign(run_order=final["run"].map(order)).sort_values(["run_order", "horizon"]).drop(columns="run_order")
-    final[["NSE", "RMSE", "MAE", "rMBE", "skill_vs_persistence"]] = final[["NSE", "RMSE", "MAE", "rMBE", "skill_vs_persistence"]].round(3)
-    final.to_csv(FULL_CSV, index=False)
-
-    plot_nse(final)
-
-    sparse = final[final["horizon"].isin([1, 8, 16])][["horizon", "run", "NSE", "RMSE"]].copy()
-    sparse = sparse.assign(run_order=sparse["run"].map(order)).sort_values(["horizon", "run_order"]).drop(columns="run_order")
-    sparse.to_csv(SPARSE_CSV, index=False)
-
-    print(f"Wrote: {FULL_CSV}")
-    print(f"Wrote: {SPARSE_CSV}")
-    print(f"Wrote: {FIG_DIR / 'gru_nse_by_horizon.png'}")
+    print(f"Wrote: {FULL_TABLE_CSV}")
+    print(f"Wrote: {SPARSE_TABLE_CSV}")
+    print(f"Wrote: {FIGURES_DIR / 'gru_nse_by_horizon.png'}")
 
 
 if __name__ == "__main__":
