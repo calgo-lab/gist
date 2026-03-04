@@ -220,3 +220,4 @@ def plot_nse(final: pd.DataFrame) -> None:
 
 if __name__ == "__main__":
     main()
+    
