@@ -1,0 +1,13 @@
+name: gru_small_grid_v1
+max_trials: 12
+random_seed: 42
+objective:
+  file: metrics.parquet
+  horizon: 16
+  metric: RMSE
+  mode: min
+search_space:
+  model.gru_layers: [1, 2, 3]
+  model.gru_hidden: [96, 128, 192]
+  model.gru_dropout: [0.1, 0.2, 0.3]
+  training.lr: [0.0001, 0.0003, 0.001]
