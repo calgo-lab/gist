@@ -18,7 +18,10 @@ SPARSE_CSV = METRICS_DIR / "gru_metrics_summary_sparse.csv"
 RUN_RE = re.compile(
     r"^GRU_FCOV_"
     r"in(?P<in_len>\d+)_out(?P<out_len>\d+)_ep(?P<epochs>\d+)_bs(?P<batch_size>\d+)"
-    r"_seed(?P<seed>\d+)_(?P<dataset>.+)$"
+    r"_seed(?P<seed>\d+)_(?P<dataset>[a-z]+(?:_[a-z]+)*)"
+    r"(?:_(?P<revin>r[01]))?"
+    r"(?:_(?P<scheduler>s[01]))?"
+    r"(?:_spf(?P<spf>[^_]+)_sc(?P<sc>\d+)_ss(?P<ss>\d+))?$"
 )
 
 
@@ -49,9 +52,13 @@ def split_tag(run_sig: str) -> str:
     return m.group(1) if m else ""
 
 
-def run_label(in_len: int, out_len: int, epochs: int, dataset: str, layers: int | None, run_sig: str) -> str:
+def run_label(in_len: int, out_len: int, epochs: int, dataset: str, layers: int | None, run_sig: str, use_revin: bool | None, use_scheduler: bool | None) -> str:
     prefix = f"gru_l{layers}" if layers is not None else "gru"
     label = f"{prefix}_in{in_len}_out{out_len}_ep{epochs}_{dataset}"
+    if use_revin is not None:
+        label += "_r1" if use_revin else "_r0"
+    if use_scheduler is not None:
+        label += "_s1" if use_scheduler else "_s0"
     if "_spf" in run_sig and "_sc" in run_sig and "_ss" in run_sig:
         if dataset == "full_merged":
             label += "_spatial_split"
@@ -73,6 +80,8 @@ def load_run_meta(run_dir: Path) -> dict | None:
             "seed": int(m.group("seed")),
             "dataset": m.group("dataset"),
             "num_layers": None,
+            "use_revin": (m.group("revin") == "r1") if m.group("revin") else None,
+            "use_scheduler": (m.group("scheduler") == "s1") if m.group("scheduler") else None,
         }
     meta_path = run_dir / "meta.yaml"
     if meta_path.exists():
@@ -89,6 +98,8 @@ def load_run_meta(run_dir: Path) -> dict | None:
                 "seed": int(y.get("seed", meta.get("seed"))),
                 "dataset": str(y.get("dataset", meta.get("dataset"))),
                 "num_layers": y.get("num_layers", meta.get("num_layers")),
+                "use_revin": y.get("use_revin", meta.get("use_revin")),
+                "use_scheduler": y.get("use_scheduler", meta.get("use_scheduler")),
             })
     return meta or None
 
@@ -135,6 +146,8 @@ def collect() -> pd.DataFrame:
             dataset=meta["dataset"],
             layers=meta.get("num_layers"),
             run_sig=run_sig,
+            use_revin=meta.get("use_revin"),
+            use_scheduler=meta.get("use_scheduler"),
         )
 
         m = metrics_by_well_horizon(pred_df)
@@ -171,6 +184,27 @@ def sort_key(run_name: str) -> tuple:
     return (order.get(dataset, 9), in_len, out_len, epochs, layers, run_name)
 
 
+def legend_label(run_name: str) -> str:
+    m = re.match(r"^gru(?:_l(\d+))?_in\d+_out\d+_ep\d+_.+$", run_name)
+    if m and m.group(1):
+        base = f"gru {int(m.group(1))}-layer"
+    else:
+        base = "gru"
+
+    tags = []
+    if "_r1" in run_name:
+        tags.append("revin")
+    elif "_r0" in run_name:
+        tags.append("no-revin")
+
+    if "_s0" in run_name:
+        tags.append("no-sched")
+
+    if tags:
+        return f"{base} " + " ".join(tags)
+    return base
+
+
 def plot_nse(final: pd.DataFrame) -> None:
     fig, ax = plt.subplots(figsize=(9, 5))
     plot_df = final[
@@ -179,7 +213,7 @@ def plot_nse(final: pd.DataFrame) -> None:
     ].copy()
     for run_label in plot_df["run"].unique():
         sub = plot_df[plot_df["run"] == run_label].sort_values("horizon")
-        ax.plot(sub["horizon"], sub["NSE"], marker="o", markersize=4, label=run_label)
+        ax.plot(sub["horizon"], sub["NSE"], marker="o", markersize=4, label=legend_label(run_label))
 
     # Overlay a TFT reference line (if available) for direct comparison in one figure.
     if TFT_SUMMARY.exists():
