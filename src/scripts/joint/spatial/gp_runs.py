@@ -1,6 +1,7 @@
 import argparse
 import copy
 import itertools
+import math
 import os
 import pathlib
 import random
@@ -168,6 +169,14 @@ def main():
             row.update({f"hp.{k}": v for k, v in params.items()})
             rows.append(row)
             pd.DataFrame(rows).to_csv(out_csv, index=False)
+
+            if status == "ok" and (obj is None or not math.isfinite(float(obj))):
+                status = "failed"
+                error = "objective is non-finite (nan/inf)"
+                rows[-1]["status"] = status
+                rows[-1]["error"] = error
+                rows[-1]["objective"] = obj
+                pd.DataFrame(rows).to_csv(out_csv, index=False)
 
             if status == "ok" and obj is not None:
                 better = best_val is None or (obj > best_val if mode == "max" else obj < best_val)

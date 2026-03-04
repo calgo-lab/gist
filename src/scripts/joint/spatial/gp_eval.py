@@ -67,6 +67,12 @@ def pretrain_gp_kernel(
     max_train_pts=2000,
     device=torch.device("cpu"),
 ):
+    def _params_finite(module):
+        for p in module.parameters():
+            if not torch.isfinite(p).all():
+                return False
+        return True
+
     gp.train()
     if X_train.size(0) > max_train_pts:
         idx = torch.randperm(X_train.size(0), device=device)[:max_train_pts]
@@ -76,6 +82,7 @@ def pretrain_gp_kernel(
 
     opt = torch.optim.Adam(gp.parameters(), lr=lr)
     for step in range(n_steps):
+        last_good = {k: v.detach().clone() for k, v in gp.state_dict().items()}
         opt.zero_grad()
         try:
             loss = gp.marginal_log_likelihood(X_s, y_s)
@@ -88,6 +95,10 @@ def pretrain_gp_kernel(
             break
         loss.backward()
         opt.step()
+        if not _params_finite(gp):
+            gp.load_state_dict(last_good)
+            print(f"    non-finite params after step {step + 1}/{n_steps}; restore last good state and stop pretrain")
+            break
     gp.eval()
 
 
@@ -227,7 +238,21 @@ def main():
             print(f"  horizon {h}: pre-training GP kernel ({args.pretrain_steps} steps) on {X_all.size(0)} pts ...")
             pretrain_gp_kernel(gp, X_all, y_all, n_steps=args.pretrain_steps, lr=args.pretrain_lr,
                                max_train_pts=args.max_pretrain_pts, device=device)
-            print(f"    ls={gp.length_scale().item():.4f}  os={gp.output_scale().item():.4f}  noise={gp.noise().item():.4f}")
+            ls = gp.length_scale().detach().float().view(-1)[0].item()
+            os_ = gp.output_scale().detach().float().view(-1)[0].item()
+            nz = gp.noise().detach().float().view(-1)[0].item()
+            if not np.isfinite(ls) or not np.isfinite(os_) or not np.isfinite(nz):
+                print("    non-finite GP hyperparams after pretrain; re-init GP without pretrain for this horizon")
+                gp = GPLayer(
+                    n_spatial_dims=2,
+                    kernel_type=kernel_type,
+                    isotropic=isotropic,
+                    jitter=args.jitter,
+                ).to(device)
+                ls = gp.length_scale().detach().float().view(-1)[0].item()
+                os_ = gp.output_scale().detach().float().view(-1)[0].item()
+                nz = gp.noise().detach().float().view(-1)[0].item()
+            print(f"    ls={ls:.4f}  os={os_:.4f}  noise={nz:.4f}")
 
         for dt in dates:
             gws_dt = gws[gws["datum"] == dt][["id", "gws", "x_25833", "y_25833"]]
