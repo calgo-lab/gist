@@ -5,7 +5,7 @@ model:
   gru_layers: 2
   gru_dropout: 0.2
   dropout: 0.2
-  use_revin: true
+  use_revin: false
 
 run_sig: auto
 
@@ -22,7 +22,7 @@ training:
   lr: 3e-4
   grad_clip: 1.0
   lr_scheduler:
-    enabled: true
+    enabled: false
     mode: min
     factor: 0.5
     patience: 5
