@@ -51,14 +51,15 @@ def _resolve_data_file(data_cfg, dataset):
     raise ValueError(f"Unknown DATASET={dataset}")
 
 
-def _resolve_run_sig(tft_cfg, dataset, in_len, out_len, epochs, batch_size, seed, use_revin, spatial_fraction, spatial_clusters, spatial_seed):
+def _resolve_run_sig(tft_cfg, dataset, in_len, out_len, epochs, batch_size, seed, use_revin, use_scheduler, spatial_fraction, spatial_clusters, spatial_seed):
     run_sig_cfg = str(tft_cfg.get("run_sig", "")).strip()
     if run_sig_cfg and run_sig_cfg.lower() != "auto":
         return run_sig_cfg
     revin_tag = "r1" if bool(use_revin) else "r0"
+    sched_tag = "s1" if bool(use_scheduler) else "s0"
     return (
         f"in{in_len}_out{out_len}_ep{epochs}_bs{batch_size}"
-        f"_seed{seed}_{dataset}_{revin_tag}"
+        f"_seed{seed}_{dataset}_{revin_tag}_{sched_tag}"
         f"_spf{str(spatial_fraction).replace('.', 'p')}_sc{spatial_clusters}_ss{spatial_seed}"
     )
 
@@ -123,6 +124,7 @@ def main():
     epochs = int(training_cfg.get("epochs", 20))
     batch_size = int(training_cfg.get("batch_size", 1024))
     use_revin = bool(gru_cfg.get("model", {}).get("use_revin", False))
+    use_scheduler = bool(gru_cfg.get("training", {}).get("lr_scheduler", {}).get("enabled", True))
 
     spatial_fraction = float(spatial_cfg.get("train_fraction", 0.5))
     spatial_clusters = int(spatial_cfg.get("cluster_count", 10))
@@ -155,6 +157,7 @@ def main():
         batch_size=batch_size,
         seed=seed,
         use_revin=use_revin,
+        use_scheduler=use_scheduler,
         spatial_fraction=spatial_fraction,
         spatial_clusters=spatial_clusters,
         spatial_seed=spatial_seed,

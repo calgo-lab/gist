@@ -1,0 +1,11 @@
+name: gru_ablation_revin_scheduler
+max_trials: 4
+random_seed: 42
+objective:
+  file: metrics.parquet
+  horizon: 16
+  metric: RMSE
+  mode: min
+search_space:
+  model.use_revin: [false, true]
+  training.lr_scheduler.enabled: [false, true]
