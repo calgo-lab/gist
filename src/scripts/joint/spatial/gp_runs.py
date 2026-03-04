@@ -135,36 +135,46 @@ def main():
             isotropic = cfg.get("isotropic", True)
 
             t0 = time.perf_counter()
-            run_dir = run_gp(
-                gru_run_sig,
-                gp_run_tag,
-                pretrain_steps,
-                pretrain_lr,
-                max_pretrain_pts,
-                date_freq,
-                jitter,
-                kernel_type,
-                isotropic,
-            )
-            obj = read_metric(run_dir, metric_name)
+            status = "ok"
+            obj = None
+            error = ""
+            try:
+                run_dir = run_gp(
+                    gru_run_sig,
+                    gp_run_tag,
+                    pretrain_steps,
+                    pretrain_lr,
+                    max_pretrain_pts,
+                    date_freq,
+                    jitter,
+                    kernel_type,
+                    isotropic,
+                )
+                obj = read_metric(run_dir, metric_name)
+            except Exception as e:
+                status = "failed"
+                error = str(e)
             elapsed = round(time.perf_counter() - t0, 3)
 
             row = {
                 "trial": i,
                 "gru_run_sig": gru_run_sig,
                 "gp_run_tag": gp_run_tag,
+                "status": status,
                 "objective": obj,
                 "elapsed_s": elapsed,
+                "error": error,
             }
             row.update({f"hp.{k}": v for k, v in params.items()})
             rows.append(row)
             pd.DataFrame(rows).to_csv(out_csv, index=False)
 
-            better = best_val is None or (obj > best_val if mode == "max" else obj < best_val)
-            if better:
-                best = row
-                best_val = obj
-            print(f"[{i}/{len(trials)}] {gp_run_tag} objective={obj}")
+            if status == "ok" and obj is not None:
+                better = best_val is None or (obj > best_val if mode == "max" else obj < best_val)
+                if better:
+                    best = row
+                    best_val = obj
+            print(f"[{i}/{len(trials)}] {gp_run_tag} status={status} objective={obj}")
 
         if best is not None:
             best_path = HPO_DIR / f"{hpo_name}_best.yaml"

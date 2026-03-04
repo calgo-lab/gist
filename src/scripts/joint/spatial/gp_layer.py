@@ -64,6 +64,20 @@ class GPLayer(nn.Module):
             return rbf_kernel(X1, X2, ls, os_)
         return matern32_kernel(X1, X2, ls, os_)
 
+    def _cholesky_with_jitter(self, K, base_diag):
+        K = 0.5 * (K + K.T)
+        K = torch.nan_to_num(K, nan=0.0, posinf=1e6, neginf=-1e6)
+        I = torch.eye(K.size(0), device=K.device, dtype=K.dtype)
+        jitter = float(self.jitter)
+        last_err = None
+        for _ in range(12):
+            try:
+                return torch.linalg.cholesky(K + (base_diag + jitter) * I)
+            except RuntimeError as e:
+                last_err = e
+                jitter *= 10.0
+        raise last_err
+
     def forward(
         self,
         X_train,
@@ -73,11 +87,9 @@ class GPLayer(nn.Module):
         noise = self.noise()
 
         K_tt = self._kernel(X_train, X_train)
-        K_tt = K_tt + (noise.pow(2) + self.jitter) * torch.eye(K_tt.size(0), device=K_tt.device, dtype=K_tt.dtype)
-
         K_st = self._kernel(X_test, X_train)
 
-        L = torch.linalg.cholesky(K_tt)
+        L = self._cholesky_with_jitter(K_tt, noise.pow(2))
         alpha = torch.cholesky_solve(y_train.unsqueeze(-1), L).squeeze(-1)
         y_pred = K_st @ alpha
         return y_pred
@@ -91,11 +103,10 @@ class GPLayer(nn.Module):
         noise = self.noise()
 
         K_tt = self._kernel(X_train, X_train)
-        K_tt = K_tt + (noise.pow(2) + self.jitter) * torch.eye(K_tt.size(0), device=K_tt.device, dtype=K_tt.dtype)
         K_ss = self._kernel(X_test, X_test)
         K_st = self._kernel(X_test, X_train)
 
-        L = torch.linalg.cholesky(K_tt)
+        L = self._cholesky_with_jitter(K_tt, noise.pow(2))
         alpha = torch.cholesky_solve(y_train.unsqueeze(-1), L).squeeze(-1)
         y_pred = K_st @ alpha
 
@@ -113,9 +124,7 @@ class GPLayer(nn.Module):
         N = y.size(0)
 
         K = self._kernel(X, X)
-        K = K + (noise.pow(2) + self.jitter) * torch.eye(N, device=K.device, dtype=K.dtype)
-
-        L = torch.linalg.cholesky(K)
+        L = self._cholesky_with_jitter(K, noise.pow(2))
         alpha = torch.cholesky_solve(y.unsqueeze(-1), L).squeeze(-1)
 
         data_fit   = 0.5 * (y * alpha).sum()

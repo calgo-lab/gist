@@ -75,9 +75,17 @@ def pretrain_gp_kernel(
         X_s, y_s = X_train, y_train
 
     opt = torch.optim.Adam(gp.parameters(), lr=lr)
-    for _ in range(n_steps):
+    for step in range(n_steps):
         opt.zero_grad()
-        loss = gp.marginal_log_likelihood(X_s, y_s)
+        try:
+            loss = gp.marginal_log_likelihood(X_s, y_s)
+        except RuntimeError as e:
+            print(f"    mll failed at step {step + 1}/{n_steps}: {e}")
+            print("    continue without more pretrain steps for this horizon")
+            break
+        if not torch.isfinite(loss):
+            print(f"    non-finite mll at step {step + 1}/{n_steps}; stop pretrain for this horizon")
+            break
         loss.backward()
         opt.step()
     gp.eval()
