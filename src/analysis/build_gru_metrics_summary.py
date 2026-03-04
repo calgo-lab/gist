@@ -1,22 +1,19 @@
 from pathlib import Path
 import re
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 import yaml
 
-
 ROOT = Path(__file__).resolve().parents[2]
+GRU_ROOT = ROOT / "outputs" / "GRU_FCOV"
+METRICS_DIR = ROOT / "reports" / "gru" / "metrics"
+FIG_DIR = ROOT / "reports" / "gru" / "figures"
+TFT_SUMMARY = ROOT / "reports" / "tft" / "metrics" / "tft_metrics_summary.csv"
 
-GRU_OUTPUT_ROOT = ROOT / "outputs" / "GRU_FCOV"
-REPORTS_DIR = ROOT / "reports" / "gru" / "metrics"
-FIGURES_DIR = ROOT / "reports" / "gru" / "figures"
-TFT_SUMMARY_CSV = ROOT / "reports" / "tft" / "metrics" / "tft_metrics_summary.csv"
-
-FULL_TABLE_CSV = REPORTS_DIR / "gru_metrics_summary.csv"
-SPARSE_TABLE_CSV = REPORTS_DIR / "gru_metrics_summary_sparse.csv"
-
+FULL_CSV = METRICS_DIR / "gru_metrics_summary.csv"
+SPARSE_CSV = METRICS_DIR / "gru_metrics_summary_sparse.csv"
 
 RUN_RE = re.compile(
     r"^GRU_FCOV_"
@@ -25,248 +22,206 @@ RUN_RE = re.compile(
 )
 
 
-def _is_spatial_split(run_sig: str) -> bool:
-    return "_spf" in run_sig and "_sc" in run_sig and "_ss" in run_sig
+def nse(pred: np.ndarray, real: np.ndarray) -> float:
+    denom = np.sum((real - np.mean(real)) ** 2)
+    if denom <= 0:
+        return np.nan
+    return float(1 - np.sum((pred - real) ** 2) / denom)
 
 
-def _split_tag(run_sig: str) -> str:
+def rmse(pred: np.ndarray, real: np.ndarray) -> float:
+    return float(np.sqrt(np.mean((pred - real) ** 2)))
+
+
+def mae(pred: np.ndarray, real: np.ndarray) -> float:
+    return float(np.mean(np.abs(pred - real)))
+
+
+def rmbe(pred: np.ndarray, real: np.ndarray) -> float:
+    s = np.std(real)
+    if s <= 0:
+        return np.nan
+    return float(np.mean(pred - real) / s)
+
+
+def split_tag(run_sig: str) -> str:
     m = re.search(r"(_spf[^_]+_sc\d+_ss\d+)", run_sig)
     return m.group(1) if m else ""
 
 
-def _run_label(
-    in_len: int,
-    out_len: int,
-    epochs: int,
-    dataset: str,
-    spatial_split: bool,
-    split_tag: str,
-    num_layers: int | None = None,
-) -> str:
-    prefix = f"gru_l{num_layers}" if num_layers is not None else "gru"
+def run_label(in_len: int, out_len: int, epochs: int, dataset: str, layers: int | None, run_sig: str) -> str:
+    prefix = f"gru_l{layers}" if layers is not None else "gru"
     label = f"{prefix}_in{in_len}_out{out_len}_ep{epochs}_{dataset}"
-    if spatial_split:
+    if "_spf" in run_sig and "_sc" in run_sig and "_ss" in run_sig:
         if dataset == "full_merged":
-            label = f"{label}_spatial_split"
-        if split_tag:
-            label = f"{label}{split_tag}"
+            label += "_spatial_split"
+        tag = split_tag(run_sig)
+        if tag:
+            label += tag
     return label
 
 
-def _nse(pred: np.ndarray, real: np.ndarray) -> float:
-    denom = np.sum((real - np.mean(real)) ** 2)
-    if denom <= 0:
-        return np.nan
-    return float(1 - (np.sum((pred - real) ** 2) / denom))
+def load_run_meta(run_dir: Path) -> dict | None:
+    name = run_dir.name
+    m = RUN_RE.match(name)
+    meta = {}
+    if m:
+        meta = {
+            "in_len": int(m.group("in_len")),
+            "out_len": int(m.group("out_len")),
+            "epochs": int(m.group("epochs")),
+            "seed": int(m.group("seed")),
+            "dataset": m.group("dataset"),
+            "num_layers": None,
+        }
+    meta_path = run_dir / "meta.yaml"
+    if meta_path.exists():
+        y = yaml.safe_load(meta_path.read_text(encoding="utf-8")) or {}
+        if isinstance(y, dict):
+            if not meta:
+                req = ["in_len", "out_len", "epochs", "seed", "dataset"]
+                if not all(k in y for k in req):
+                    return None
+            meta.update({
+                "in_len": int(y.get("in_len", meta.get("in_len"))),
+                "out_len": int(y.get("out_len", meta.get("out_len"))),
+                "epochs": int(y.get("epochs", meta.get("epochs"))),
+                "seed": int(y.get("seed", meta.get("seed"))),
+                "dataset": str(y.get("dataset", meta.get("dataset"))),
+                "num_layers": y.get("num_layers", meta.get("num_layers")),
+            })
+    return meta or None
 
 
-def _rmse(pred: np.ndarray, real: np.ndarray) -> float:
-    return float(np.sqrt(np.mean((pred - real) ** 2)))
-
-
-def _mae(pred: np.ndarray, real: np.ndarray) -> float:
-    return float(np.mean(np.abs(pred - real)))
-
-
-def _rmbe(pred: np.ndarray, real: np.ndarray) -> float:
-    std_real = np.std(real)
-    if std_real <= 0:
-        return np.nan
-    return float(np.mean(pred - real) / std_real)
-
-
-def _metrics_by_id_horizon(pred_df: pd.DataFrame) -> pd.DataFrame:
+def metrics_by_well_horizon(pred_df: pd.DataFrame) -> pd.DataFrame:
     rows = []
-    for (well_id, horizon), group in pred_df.groupby(["id", "horizon"]):
-        pred = group["gws_forecast"].to_numpy()
-        real = group["gws"].to_numpy()
-        rows.append(
-            {
-                "id": well_id,
-                "horizon": int(horizon),
-                "NSE": _nse(pred, real),
-                "RMSE": _rmse(pred, real),
-                "MAE": _mae(pred, real),
-                "rMBE": _rmbe(pred, real),
-            }
-        )
+    for (well_id, h), g in pred_df.groupby(["id", "horizon"]):
+        p = g["gws_forecast"].to_numpy()
+        r = g["gws"].to_numpy()
+        rows.append({
+            "id": well_id,
+            "horizon": int(h),
+            "NSE": nse(p, r),
+            "RMSE": rmse(p, r),
+            "MAE": mae(p, r),
+            "rMBE": rmbe(p, r),
+        })
     return pd.DataFrame(rows)
 
 
-def _collect_runs() -> pd.DataFrame:
-    rows = []
-    if not GRU_OUTPUT_ROOT.exists():
+def collect() -> pd.DataFrame:
+    if not GRU_ROOT.exists():
         return pd.DataFrame()
 
-    for run_dir in sorted(GRU_OUTPUT_ROOT.glob("GRU_FCOV_*")):
+    parts = []
+    for run_dir in sorted(GRU_ROOT.glob("GRU_FCOV_*")):
         pred_path = run_dir / "predictions" / "pred.parquet"
         if not pred_path.exists():
             continue
 
-        run_sig = run_dir.name.replace("GRU_FCOV_", "", 1)
-        split_tag = _split_tag(run_sig)
-        spatial_split = _is_spatial_split(run_sig)
-        num_layers = None
-
-        m = RUN_RE.match(run_dir.name)
-        if m is not None:
-            in_len = int(m.group("in_len"))
-            out_len = int(m.group("out_len"))
-            epochs = int(m.group("epochs"))
-            seed = int(m.group("seed"))
-            dataset = m.group("dataset")
-        else:
-            # Regex didn't match (e.g. custom run_sig) — fall back to meta.yaml
-            meta_path = run_dir / "meta.yaml"
-            if not meta_path.exists():
-                continue
-            with open(meta_path, "r", encoding="utf-8") as f:
-                meta_fb = yaml.safe_load(f) or {}
-            if not isinstance(meta_fb, dict):
-                continue
-            required = ["in_len", "out_len", "epochs", "seed", "dataset"]
-            if not all(k in meta_fb for k in required):
-                continue
-            in_len = int(meta_fb["in_len"])
-            out_len = int(meta_fb["out_len"])
-            epochs = int(meta_fb["epochs"])
-            seed = int(meta_fb["seed"])
-            dataset = str(meta_fb["dataset"])
-            num_layers = meta_fb.get("num_layers")
-
-        # Always override with meta.yaml values when available
-        meta_path = run_dir / "meta.yaml"
-        if meta_path.exists():
-            with open(meta_path, "r", encoding="utf-8") as f:
-                meta = yaml.safe_load(f) or {}
-            if isinstance(meta, dict):
-                in_len = int(meta.get("in_len", in_len))
-                out_len = int(meta.get("out_len", out_len))
-                epochs = int(meta.get("epochs", epochs))
-                seed = int(meta.get("seed", seed))
-                dataset = str(meta.get("dataset", dataset))
-                if num_layers is None:
-                    num_layers = meta.get("num_layers")
+        meta = load_run_meta(run_dir)
+        if not meta:
+            continue
 
         pred_df = pd.read_parquet(pred_path)
         if pred_df.empty:
             continue
 
-        metrics_well_h = _metrics_by_id_horizon(pred_df)
-        metrics_well_h["seed"] = seed
-        metrics_well_h["run"] = _run_label(
-            in_len=in_len,
-            out_len=out_len,
-            epochs=epochs,
-            dataset=dataset,
-            spatial_split=spatial_split,
-            split_tag=split_tag,
-            num_layers=num_layers,
+        run_sig = run_dir.name.replace("GRU_FCOV_", "", 1)
+        label = run_label(
+            in_len=meta["in_len"],
+            out_len=meta["out_len"],
+            epochs=meta["epochs"],
+            dataset=meta["dataset"],
+            layers=meta.get("num_layers"),
+            run_sig=run_sig,
         )
-        metrics_well_h["in_len"] = in_len
-        metrics_well_h["out_len"] = out_len
-        metrics_well_h["epochs"] = epochs
-        metrics_well_h["dataset"] = dataset
-        rows.append(metrics_well_h)
 
-    if not rows:
-        return pd.DataFrame()
+        m = metrics_by_well_horizon(pred_df)
+        m["seed"] = meta["seed"]
+        m["run"] = label
+        parts.append(m)
 
-    return pd.concat(rows, ignore_index=True)
+    return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
 
 
-def _aggregate(df: pd.DataFrame) -> pd.DataFrame:
-    # Match TFT logic:
-    # 1) median across wells for each seed + horizon
-    # 2) median across seeds for each run + horizon
+def aggregate(raw: pd.DataFrame) -> pd.DataFrame:
     by_seed = (
-        df.groupby(["run", "seed", "horizon"], as_index=False)[["NSE", "RMSE", "MAE", "rMBE"]]
+        raw.groupby(["run", "seed", "horizon"], as_index=False)[["NSE", "RMSE", "MAE", "rMBE"]]
         .median()
     )
-    agg = (
+    out = (
         by_seed.groupby(["run", "horizon"], as_index=False)[["NSE", "RMSE", "MAE", "rMBE"]]
         .median()
     )
-    agg["skill_vs_persistence"] = np.nan
-    return agg
+    out["skill_vs_persistence"] = np.nan
+    return out
 
 
-def _run_sort_key(run_name: str) -> tuple:
+def sort_key(run_name: str) -> tuple:
     m = re.match(r"^gru(?:_l(\d+))?_in(\d+)_out(\d+)_ep(\d+)_(.+)$", run_name)
     if m is None:
-        return (9999, 9999, 9999, 9999, run_name)
-    num_layers = int(m.group(1)) if m.group(1) else 0
+        return (9999, 9999, 9999, 9999, 9999, run_name)
+    layers = int(m.group(1)) if m.group(1) else 0
     in_len = int(m.group(2))
     out_len = int(m.group(3))
     epochs = int(m.group(4))
     dataset = m.group(5)
-    dataset_order = {"full_raw": 0, "full_merged_spatial_split": 1, "full_merged": 2, "sample": 3}
-    d_ord = dataset_order.get(dataset, 9)
-    return (d_ord, in_len, out_len, epochs, num_layers, run_name)
+    order = {"full_raw": 0, "full_merged_spatial_split": 1, "full_merged": 2, "sample": 3}
+    return (order.get(dataset, 9), in_len, out_len, epochs, layers, run_name)
 
 
-def main() -> None:
-    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    FIGURES_DIR.mkdir(parents=True, exist_ok=True)
-
-    raw = _collect_runs()
-    if raw.empty:
-        print("No GRU runs with predictions found. Nothing to summarize.")
-        return
-
-    final = _aggregate(raw)
-    run_order = {r: i for i, r in enumerate(sorted(final["run"].unique(), key=_run_sort_key))}
-    final["run_order"] = final["run"].map(run_order)
-    final = final.sort_values(["run_order", "horizon"]).drop(columns="run_order").reset_index(drop=True)
-
-    numeric_cols = ["NSE", "RMSE", "MAE", "rMBE", "skill_vs_persistence"]
-    final[numeric_cols] = final[numeric_cols].round(3)
-    final.to_csv(FULL_TABLE_CSV, index=False)
-
-    # Plot NSE by horizon for each run
+def plot_nse(final: pd.DataFrame) -> None:
     fig, ax = plt.subplots(figsize=(9, 5))
-    plot_df = final[
+
+    show = final[
         final["run"].str.contains("_ep50_", na=False)
         & final["run"].str.contains("spf0p8", na=False)
     ].copy()
-    for run_label in plot_df["run"].unique():
-        sub = plot_df[plot_df["run"] == run_label].sort_values("horizon")
-        ax.plot(sub["horizon"], sub["NSE"], marker="o", markersize=4, label=run_label)
+    for run in show["run"].unique():
+        s = show[show["run"] == run].sort_values("horizon")
+        ax.plot(s["horizon"], s["NSE"], marker="o", markersize=4, label=run)
 
-    # Overlay a TFT reference line (if available) for direct comparison in one figure.
-    if TFT_SUMMARY_CSV.exists():
-        tft = pd.read_csv(TFT_SUMMARY_CSV)
-        tft_ref = tft[tft["run"] == "robert_ep50_full_merged_spatial_split"].copy()
-        if not tft_ref.empty:
-            tft_ref = tft_ref.sort_values("horizon")
-            ax.plot(
-                tft_ref["horizon"],
-                tft_ref["NSE"],
-                linestyle="--",
-                linewidth=2,
-                color="black",
-                label="tft_ep50_full_merged_spatial_split",
-            )
+    if TFT_SUMMARY.exists():
+        tft = pd.read_csv(TFT_SUMMARY)
+        ref = tft[tft["run"] == "robert_ep50_full_merged_spatial_split"].sort_values("horizon")
+        if not ref.empty:
+            ax.plot(ref["horizon"], ref["NSE"], "--", linewidth=2, color="black", label="tft_ep50_full_merged_spatial_split")
 
     ax.set_xlabel("Forecast horizon (weeks)")
-    ax.set_ylabel("NSE (median across wells & seeds)")
+    ax.set_ylabel("NSE (median across wells)")
     ax.set_title("GRU NSE by forecast horizon")
     ax.legend(fontsize=8, frameon=False)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
-    fig.savefig(FIGURES_DIR / "gru_nse_by_horizon.png", dpi=200)
+    fig.savefig(FIG_DIR / "gru_nse_by_horizon.png", dpi=200)
     plt.close(fig)
 
-    sparse_horizons = [1, 8, 16]
-    sparse = final[final["horizon"].isin(sparse_horizons)].copy()
-    sparse = sparse[["horizon", "run", "NSE", "RMSE"]]
-    sparse["run_order"] = sparse["run"].map(run_order)
-    sparse = sparse.sort_values(["horizon", "run_order"]).drop(columns="run_order")
-    sparse.to_csv(SPARSE_TABLE_CSV, index=False)
 
-    print(f"Wrote: {FULL_TABLE_CSV}")
-    print(f"Wrote: {SPARSE_TABLE_CSV}")
-    print(f"Wrote: {FIGURES_DIR / 'gru_nse_by_horizon.png'}")
+def main() -> None:
+    METRICS_DIR.mkdir(parents=True, exist_ok=True)
+    FIG_DIR.mkdir(parents=True, exist_ok=True)
+
+    raw = collect()
+    if raw.empty:
+        print("No GRU runs with predictions found. Nothing to summarize.")
+        return
+
+    final = aggregate(raw)
+    order = {r: i for i, r in enumerate(sorted(final["run"].unique(), key=sort_key))}
+    final = final.assign(run_order=final["run"].map(order)).sort_values(["run_order", "horizon"]).drop(columns="run_order")
+    final[["NSE", "RMSE", "MAE", "rMBE", "skill_vs_persistence"]] = final[["NSE", "RMSE", "MAE", "rMBE", "skill_vs_persistence"]].round(3)
+    final.to_csv(FULL_CSV, index=False)
+
+    plot_nse(final)
+
+    sparse = final[final["horizon"].isin([1, 8, 16])][["horizon", "run", "NSE", "RMSE"]].copy()
+    sparse = sparse.assign(run_order=sparse["run"].map(order)).sort_values(["horizon", "run_order"]).drop(columns="run_order")
+    sparse.to_csv(SPARSE_CSV, index=False)
+
+    print(f"Wrote: {FULL_CSV}")
+    print(f"Wrote: {SPARSE_CSV}")
+    print(f"Wrote: {FIG_DIR / 'gru_nse_by_horizon.png'}")
 
 
 if __name__ == "__main__":
