@@ -1,9 +1,6 @@
 dataset: full_merged
 
 model:
-  gru_hidden: 128
-  gru_layers: 2
-  gru_dropout: 0.2
   dropout: 0.2
 
 run_sig: auto
