@@ -67,10 +67,12 @@ def _run_sig_from_cfg(cfg: dict) -> str:
     epochs = int(tr_cfg.get("epochs", 20))
     bs = int(tr_cfg.get("batch_size", 1024))
     seed = int(tr_cfg.get("seed", 40))
+    use_revin = bool(cfg.get("model", {}).get("use_revin", False))
+    revin_tag = "r1" if use_revin else "r0"
     spf = str(float(sp_cfg.get("train_fraction", 0.8))).replace(".", "p")
     sc = int(sp_cfg.get("cluster_count", 20))
     ss = int(sp_cfg.get("split_seed", 42))
-    return f"in{in_len}_out{out_len}_ep{epochs}_bs{bs}_seed{seed}_{dataset}_spf{spf}_sc{sc}_ss{ss}"
+    return f"in{in_len}_out{out_len}_ep{epochs}_bs{bs}_seed{seed}_{dataset}_{revin_tag}_spf{spf}_sc{sc}_ss{ss}"
 
 
 def _with_params(base_cfg: dict, in_len: int, out_len: int, epochs: int, seed: int, dataset: str, bs: int) -> dict:

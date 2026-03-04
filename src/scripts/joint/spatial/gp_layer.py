@@ -13,6 +13,12 @@ def matern32_kernel(X1, X2, length_scale, output_scale):
     return output_scale.pow(2) * (1.0 + sqrt3r) * torch.exp(-sqrt3r)
 
 
+def rbf_kernel(X1, X2, length_scale, output_scale):
+    diff = X1.unsqueeze(1) - X2.unsqueeze(0)
+    r2 = (diff / length_scale).pow(2).sum(-1)
+    return output_scale.pow(2) * torch.exp(-0.5 * r2)
+
+
 class GPLayer(nn.Module):
     def __init__(
         self,
@@ -20,13 +26,21 @@ class GPLayer(nn.Module):
         init_length_scale=1.0,
         init_output_scale=1.0,
         init_noise=0.1,
+        kernel_type="matern32",
+        isotropic=True,
         jitter=1e-5,
     ):
         super().__init__()
         self.n_spatial_dims = n_spatial_dims
+        self.kernel_type = str(kernel_type).lower()
+        self.isotropic = bool(isotropic)
         self.jitter = jitter
 
-        self.log_length_scale = nn.Parameter(torch.tensor(math.log(init_length_scale)))
+        if self.isotropic:
+            init_ls = torch.tensor(math.log(init_length_scale), dtype=torch.float32)
+        else:
+            init_ls = torch.full((n_spatial_dims,), math.log(init_length_scale), dtype=torch.float32)
+        self.log_length_scale = nn.Parameter(init_ls)
         self.log_output_scale = nn.Parameter(torch.tensor(math.log(init_output_scale)))
         self.log_noise         = nn.Parameter(torch.tensor(math.log(init_noise)))
 
@@ -43,20 +57,25 @@ class GPLayer(nn.Module):
     def noise(self):
         return self._softplus(self.log_noise)
 
+    def _kernel(self, X1, X2):
+        ls = self.length_scale()
+        os_ = self.output_scale()
+        if self.kernel_type == "rbf":
+            return rbf_kernel(X1, X2, ls, os_)
+        return matern32_kernel(X1, X2, ls, os_)
+
     def forward(
         self,
         X_train,
         y_train,
         X_test,
     ):
-        ls = self.length_scale()
-        os_ = self.output_scale()
         noise = self.noise()
 
-        K_tt = matern32_kernel(X_train, X_train, ls, os_)
+        K_tt = self._kernel(X_train, X_train)
         K_tt = K_tt + (noise.pow(2) + self.jitter) * torch.eye(K_tt.size(0), device=K_tt.device, dtype=K_tt.dtype)
 
-        K_st = matern32_kernel(X_test, X_train, ls, os_)
+        K_st = self._kernel(X_test, X_train)
 
         L = torch.linalg.cholesky(K_tt)
         alpha = torch.cholesky_solve(y_train.unsqueeze(-1), L).squeeze(-1)
@@ -69,14 +88,12 @@ class GPLayer(nn.Module):
         y_train,
         X_test,
     ):
-        ls = self.length_scale()
-        os_ = self.output_scale()
         noise = self.noise()
 
-        K_tt = matern32_kernel(X_train, X_train, ls, os_)
+        K_tt = self._kernel(X_train, X_train)
         K_tt = K_tt + (noise.pow(2) + self.jitter) * torch.eye(K_tt.size(0), device=K_tt.device, dtype=K_tt.dtype)
-        K_ss = matern32_kernel(X_test, X_test, ls, os_)
-        K_st = matern32_kernel(X_test, X_train, ls, os_)
+        K_ss = self._kernel(X_test, X_test)
+        K_st = self._kernel(X_test, X_train)
 
         L = torch.linalg.cholesky(K_tt)
         alpha = torch.cholesky_solve(y_train.unsqueeze(-1), L).squeeze(-1)
@@ -92,12 +109,10 @@ class GPLayer(nn.Module):
         X,
         y,
     ):
-        ls = self.length_scale()
-        os_ = self.output_scale()
         noise = self.noise()
         N = y.size(0)
 
-        K = matern32_kernel(X, X, ls, os_)
+        K = self._kernel(X, X)
         K = K + (noise.pow(2) + self.jitter) * torch.eye(N, device=K.device, dtype=K.dtype)
 
         L = torch.linalg.cholesky(K)

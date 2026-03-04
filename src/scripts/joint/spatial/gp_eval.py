@@ -33,6 +33,13 @@ def _load_yaml(path):
     return data if isinstance(data, dict) else {}
 
 
+def _as_bool(v):
+    if isinstance(v, bool):
+        return v
+    s = str(v).strip().lower()
+    return s in {"1", "true", "yes", "y", "on"}
+
+
 def _nse(pred, real):
     denom = float(np.sum((real - np.mean(real)) ** 2))
     if denom == 0:
@@ -87,6 +94,8 @@ def main():
     parser.add_argument("--max-pretrain-pts", type=int, default=2000, help="Max train pts for MLL.")
     parser.add_argument("--date-freq", default="ME", help="Pandas resample freq for date selection (ME=monthly).")
     parser.add_argument("--jitter", type=float, default=1e-5)
+    parser.add_argument("--kernel-type", default="matern32", help="matern32 or rbf")
+    parser.add_argument("--isotropic", default="true", help="true/false")
     args = parser.parse_args()
 
     gru_cfg = _load_yaml(ROOT / "configs" / "gru.yaml")
@@ -110,18 +119,22 @@ def main():
         else:
             tr = cfg_src.get("training", {})
             dc = cfg_src.get("data", {})
+            mc = cfg_src.get("model", {})
             sc = spatial_cfg
             in_len  = int(dc.get("in_len", 52))
             out_len = int(dc.get("out_len", 16))
             epochs  = int(tr.get("epochs", 50))
             bs      = int(tr.get("batch_size", 4096))
             seed    = int(tr.get("seed", 40))
+            revin_tag = "r1" if bool(mc.get("use_revin", False)) else "r0"
             spf     = str(float(sc.get("train_fraction", 0.8))).replace(".", "p")
             sc_cnt  = int(sc.get("cluster_count", 20))
             ss      = int(sc.get("split_seed", 42))
-            gru_run_sig = f"gru_l2_revin_seed{seed}_ep{epochs}_{dataset}_spf{spf}_sc{sc_cnt}_ss{ss}"
+            gru_run_sig = f"in{in_len}_out{out_len}_ep{epochs}_bs{bs}_seed{seed}_{dataset}_{revin_tag}_spf{spf}_sc{sc_cnt}_ss{ss}"
 
     model_prefix = str(args.model_prefix).strip()
+    kernel_type = str(args.kernel_type).strip().lower()
+    isotropic = _as_bool(args.isotropic)
     pred_path = (
         Path(args.pred_path)
         if args.pred_path
@@ -168,6 +181,7 @@ def main():
     print(f"Device: {device}")
     print(f"Model prefix: {model_prefix}")
     print(f"Run sig: {gru_run_sig}")
+    print(f"Kernel: {kernel_type} | isotropic={isotropic}")
     print(f"Dates ({len(dates)}): {[str(d.date()) for d in dates[:4]]} ...")
     print(f"Horizons: {horizons}")
 
@@ -184,14 +198,24 @@ def main():
         train_pred_h = pred_h[pred_h["id"].isin(train_ids)].dropna(subset=["x_25833", "y_25833", "gws_pred"])
         if train_pred_h.empty:
             print(f"  horizon {h}: no train predictions — skipping kernel pretrain")
-            gp = GPLayer(n_spatial_dims=2, jitter=args.jitter).to(device)
+            gp = GPLayer(
+                n_spatial_dims=2,
+                kernel_type=kernel_type,
+                isotropic=isotropic,
+                jitter=args.jitter,
+            ).to(device)
         else:
             X_all = torch.tensor(
                 coord_scaler.transform(train_pred_h[["x_25833", "y_25833"]].to_numpy()),
                 dtype=torch.float32, device=device
             )
             y_all = torch.tensor(train_pred_h["gws_pred"].to_numpy(), dtype=torch.float32, device=device)
-            gp = GPLayer(n_spatial_dims=2, jitter=args.jitter).to(device)
+            gp = GPLayer(
+                n_spatial_dims=2,
+                kernel_type=kernel_type,
+                isotropic=isotropic,
+                jitter=args.jitter,
+            ).to(device)
             print(f"  horizon {h}: pre-training GP kernel ({args.pretrain_steps} steps) on {X_all.size(0)} pts ...")
             pretrain_gp_kernel(gp, X_all, y_all, n_steps=args.pretrain_steps, lr=args.pretrain_lr,
                                max_train_pts=args.max_pretrain_pts, device=device)

@@ -36,16 +36,22 @@ def default_gru_sig(gru_cfg):
 
     dataset = str(gru_cfg.get("dataset", "full_merged"))
     tr = gru_cfg.get("training", {})
+    dc = gru_cfg.get("data", {})
+    mc = gru_cfg.get("model", {})
     sc = gru_cfg.get("spatial_split", {})
+    in_len = int(dc.get("in_len", 52))
+    out_len = int(dc.get("out_len", 16))
     seed = int(tr.get("seed", 40))
     epochs = int(tr.get("epochs", 50))
+    bs = int(tr.get("batch_size", 4096))
+    revin_tag = "r1" if bool(mc.get("use_revin", False)) else "r0"
     spf = str(float(sc.get("train_fraction", 0.8))).replace(".", "p")
     sc_cnt = int(sc.get("cluster_count", 20))
     ss = int(sc.get("split_seed", 42))
-    return f"gru_l2_revin_seed{seed}_ep{epochs}_{dataset}_spf{spf}_sc{sc_cnt}_ss{ss}"
+    return f"in{in_len}_out{out_len}_ep{epochs}_bs{bs}_seed{seed}_{dataset}_{revin_tag}_spf{spf}_sc{sc_cnt}_ss{ss}"
 
 
-def run_gp(gru_run_sig, gp_run_tag, pretrain_steps, pretrain_lr, max_pretrain_pts, date_freq, jitter):
+def run_gp(gru_run_sig, gp_run_tag, pretrain_steps, pretrain_lr, max_pretrain_pts, date_freq, jitter, kernel_type, isotropic):
     cmd = [
         PY,
         str(GP_EVAL),
@@ -56,6 +62,8 @@ def run_gp(gru_run_sig, gp_run_tag, pretrain_steps, pretrain_lr, max_pretrain_pt
         "--max-pretrain-pts", str(int(max_pretrain_pts)),
         "--date-freq", str(date_freq),
         "--jitter", str(float(jitter)),
+        "--kernel-type", str(kernel_type),
+        "--isotropic", str(isotropic),
     ]
     subprocess.run(cmd, check=True, env=os.environ.copy())
     run_tag = f"GRU_FCOV_{gru_run_sig}__{gp_run_tag}__predobstrain"
@@ -123,9 +131,21 @@ def main():
             max_pretrain_pts = int(cfg.get("max_pretrain_pts", 2000))
             date_freq = str(cfg.get("date_freq", "ME"))
             jitter = float(cfg.get("jitter", 1e-5))
+            kernel_type = str(cfg.get("kernel_type", "matern32"))
+            isotropic = cfg.get("isotropic", True)
 
             t0 = time.perf_counter()
-            run_dir = run_gp(gru_run_sig, gp_run_tag, pretrain_steps, pretrain_lr, max_pretrain_pts, date_freq, jitter)
+            run_dir = run_gp(
+                gru_run_sig,
+                gp_run_tag,
+                pretrain_steps,
+                pretrain_lr,
+                max_pretrain_pts,
+                date_freq,
+                jitter,
+                kernel_type,
+                isotropic,
+            )
             obj = read_metric(run_dir, metric_name)
             elapsed = round(time.perf_counter() - t0, 3)
 
@@ -162,9 +182,14 @@ def main():
     max_pretrain_pts_list = runs_cfg.get("max_pretrain_pts", [int(gp_cfg.get("max_pretrain_pts", 2000))])
     date_freq_list = runs_cfg.get("date_freq", [str(gp_cfg.get("date_freq", "ME"))])
     jitter_list = runs_cfg.get("jitter", [float(gp_cfg.get("jitter", 1e-5))])
+    kernel_type_list = runs_cfg.get("kernel_type", [str(gp_cfg.get("kernel_type", "matern32"))])
+    isotropic_list = runs_cfg.get("isotropic", [gp_cfg.get("isotropic", True)])
 
     if not LOG.exists() or LOG.stat().st_size == 0:
-        LOG.write_text("gru_run_sig,gp_run_tag,pretrain_steps,pretrain_lr,max_pretrain_pts,date_freq,jitter,run_s,objective\n", encoding="utf-8")
+        LOG.write_text(
+            "gru_run_sig,gp_run_tag,pretrain_steps,pretrain_lr,max_pretrain_pts,date_freq,jitter,kernel_type,isotropic,run_s,objective\n",
+            encoding="utf-8",
+        )
 
     for values in itertools.product(
         gru_run_sigs,
@@ -174,15 +199,29 @@ def main():
         max_pretrain_pts_list,
         date_freq_list,
         jitter_list,
+        kernel_type_list,
+        isotropic_list,
     ):
-        gru_run_sig, gp_run_tag, pretrain_steps, pretrain_lr, max_pretrain_pts, date_freq, jitter = values
+        gru_run_sig, gp_run_tag, pretrain_steps, pretrain_lr, max_pretrain_pts, date_freq, jitter, kernel_type, isotropic = values
         t0 = time.perf_counter()
-        run_dir = run_gp(gru_run_sig, gp_run_tag, pretrain_steps, pretrain_lr, max_pretrain_pts, date_freq, jitter)
+        run_dir = run_gp(
+            gru_run_sig,
+            gp_run_tag,
+            pretrain_steps,
+            pretrain_lr,
+            max_pretrain_pts,
+            date_freq,
+            jitter,
+            kernel_type,
+            isotropic,
+        )
         obj = read_metric(run_dir, "NSE_id_median")
         run_s = round(time.perf_counter() - t0, 3)
         with LOG.open("a", encoding="utf-8") as f:
-            f.write(f"{gru_run_sig},{gp_run_tag},{pretrain_steps},{pretrain_lr},{max_pretrain_pts},{date_freq},{jitter},{run_s},{obj}\n")
-        print(f"run: gru={gru_run_sig} tag={gp_run_tag} objective={obj}")
+            f.write(
+                f"{gru_run_sig},{gp_run_tag},{pretrain_steps},{pretrain_lr},{max_pretrain_pts},{date_freq},{jitter},{kernel_type},{isotropic},{run_s},{obj}\n"
+            )
+        print(f"run: gru={gru_run_sig} tag={gp_run_tag} kernel={kernel_type} iso={isotropic} objective={obj}")
 
 
 if __name__ == "__main__":

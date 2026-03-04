@@ -67,13 +67,14 @@ def _resolve_data_file(data_cfg, dataset):
     raise ValueError(f"Unknown DATASET={dataset}")
 
 
-def _resolve_run_sig(tft_cfg, dataset, in_len, out_len, n_epochs, batch_size, seed, spatial_fraction, spatial_clusters, spatial_seed):
+def _resolve_run_sig(tft_cfg, dataset, in_len, out_len, n_epochs, batch_size, seed, use_revin, spatial_fraction, spatial_clusters, spatial_seed):
     run_sig_cfg = str(tft_cfg.get("run_sig", "")).strip()
     if run_sig_cfg and run_sig_cfg.lower() != "auto":
         return run_sig_cfg
+    revin_tag = "r1" if bool(use_revin) else "r0"
     return (
         f"in{in_len}_out{out_len}_ep{n_epochs}_bs{batch_size}"
-        f"_seed{seed}_{dataset}"
+        f"_seed{seed}_{dataset}_{revin_tag}"
         f"_spf{str(spatial_fraction).replace('.', 'p')}_sc{spatial_clusters}_ss{spatial_seed}"
     )
 
@@ -350,6 +351,7 @@ def main():
         n_epochs=n_epochs,
         batch_size=batch_size,
         seed=seed,
+        use_revin=use_revin,
         spatial_fraction=spatial_fraction,
         spatial_clusters=spatial_clusters,
         spatial_seed=spatial_seed,
