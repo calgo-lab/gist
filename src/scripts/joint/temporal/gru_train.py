@@ -9,7 +9,6 @@ import pandas as pd
 import pyarrow.parquet as pq
 import torch
 from sklearn.preprocessing import StandardScaler
-from torch import nn
 from torch.utils.data import DataLoader, Dataset
 import yaml
 
@@ -55,7 +54,7 @@ class Seq2SeqDataset(Dataset):
 
 def _load_yaml(path):
     data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
-    return data if isinstance(data, dict) else {}
+    return data or {}
 
 
 def _resolve_data_file(data_cfg, dataset):
@@ -125,14 +124,14 @@ def _build_windows(df, in_len, out_len, cov_cols, well_stats, well_static, targe
 
 def main():
     data_cfg = _load_yaml("configs/data.yaml")
-    tft_cfg = _load_yaml("configs/tft.yaml")
-    dataset = tft_cfg.get("dataset", "full_raw")
+    gru_cfg = _load_yaml("configs/gru.yaml")
+    dataset = gru_cfg.get("dataset", "full_raw")
     data_file = _resolve_data_file(data_cfg, dataset)
 
-    training_cfg = tft_cfg.get("training", {}) if isinstance(tft_cfg.get("training", {}), dict) else {}
-    data_cfg_tft = tft_cfg.get("data", {}) if isinstance(tft_cfg.get("data", {}), dict) else {}
-    model_cfg = tft_cfg.get("model", {}) if isinstance(tft_cfg.get("model", {}), dict) else {}
-    spatial_cfg = tft_cfg.get("spatial_split", {}) if isinstance(tft_cfg.get("spatial_split", {}), dict) else {}
+    training_cfg = gru_cfg.get("training", {})
+    data_cfg_tft = gru_cfg.get("data", {})
+    model_cfg = gru_cfg.get("model", {})
+    spatial_cfg = gru_cfg.get("spatial_split", {})
 
     seed = int(training_cfg.get("seed", 40))
     in_len = int(data_cfg_tft.get("in_len", 52))
@@ -141,16 +140,15 @@ def main():
     n_epochs = int(training_cfg.get("epochs", 20))
     lr = float(training_cfg.get("lr", 3e-4))
     grad_clip = float(training_cfg.get("grad_clip", 1.0))
-    es_cfg = training_cfg.get("early_stopping", {}) if isinstance(training_cfg.get("early_stopping", {}), dict) else {}
+    es_cfg = training_cfg.get("early_stopping", {})
     es_patience = int(es_cfg.get("patience", 5))
     es_min_delta = float(es_cfg.get("min_delta", 0.0))
     es_mode = str(es_cfg.get("mode", "min")).strip().lower()
-    if es_mode not in {"min", "max"}:
-        es_mode = "min"
 
     hidden_size = int(model_cfg.get("gru_hidden", 64))
     num_layers = int(model_cfg.get("gru_layers", 1))
     dropout = float(model_cfg.get("gru_dropout", 0.0))
+    use_revin = bool(model_cfg.get("use_revin", False))
 
     spatial_fraction = float(spatial_cfg.get("train_fraction", 0.5))
     spatial_clusters = int(spatial_cfg.get("cluster_count", 10))
@@ -165,9 +163,6 @@ def main():
     np.random.seed(seed)
 
     gws_full = _load_dataset(data_file)
-    n_ids = int(gws_full["id"].nunique()) if "id" in gws_full.columns else 0
-    if n_ids and spatial_clusters > n_ids:
-        spatial_clusters = n_ids
 
     split_path = resolve_split_path(ROOT / "splits", dataset, spatial_cfg)
     gws_bb, _ = load_or_create_split(
@@ -208,16 +203,10 @@ def main():
     x_past_all, x_future_all, y_all, x_static_all, meta = _build_windows(
         gws_bb, in_len, out_len, COV_COLS, well_stats, well_static
     )
-    if not meta:
-        raise ValueError("No windows created. Check data length and in/out lengths.")
 
     end_times = np.array([m[1] for m in meta])
     train_mask = end_times <= np.datetime64(TRAIN_CUTOFF)
     val_mask = (end_times > np.datetime64(TRAIN_CUTOFF)) & (end_times <= np.datetime64(VAL_CUTOFF))
-    if train_mask.sum() == 0:
-        raise ValueError("No training windows found before TRAIN_CUTOFF.")
-    if val_mask.sum() == 0:
-        raise ValueError("No validation windows found before VAL_CUTOFF.")
 
     x_past_train = x_past_all[train_mask]
     x_future_train = x_future_all[train_mask]
@@ -271,9 +260,13 @@ def main():
         dropout=dropout,
         out_len=out_len,
         static_input_size=len(static_cols),
+        use_revin=use_revin,
     ).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    loss_fn = nn.MSELoss()
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="min", factor=0.5, patience=5
+    )
+    loss_fn = torch.nn.MSELoss()
 
     best_val = None
     best_epoch = 0
@@ -288,6 +281,7 @@ def main():
         "dropout": dropout,
         "out_len": out_len,
         "static_input_size": len(static_cols),
+        "use_revin": use_revin,
     }
 
     for epoch in range(1, n_epochs + 1):
@@ -320,6 +314,7 @@ def main():
 
         train_loss = float(np.mean(train_losses))
         val_loss = float(np.mean(val_losses))
+        scheduler.step(val_loss)
         print(f"epoch={epoch} train_loss={train_loss:.6f} val_loss={val_loss:.6f} time={time.time() - t_epoch:.1f}s")
 
         improved = (
@@ -340,6 +335,7 @@ def main():
                 "dropout": dropout,
                 "out_len": out_len,
                 "static_input_size": len(static_cols),
+                "use_revin": use_revin,
             }
         else:
             no_improve += 1
@@ -347,7 +343,7 @@ def main():
                 break
 
     run_sig = _resolve_run_sig(
-        tft_cfg=tft_cfg,
+        tft_cfg=gru_cfg,
         dataset=dataset,
         in_len=in_len,
         out_len=out_len,

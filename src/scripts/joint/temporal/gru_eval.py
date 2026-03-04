@@ -38,7 +38,7 @@ VAL_CUTOFF = pd.Timestamp("20200101")
 
 def _load_yaml(path):
     data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
-    return data if isinstance(data, dict) else {}
+    return data or {}
 
 
 def _resolve_data_file(data_cfg, dataset):
@@ -108,13 +108,13 @@ def _build_windows(df, in_len, out_len, cov_cols, well_stats, well_static, targe
 
 def main():
     data_cfg = _load_yaml("configs/data.yaml")
-    tft_cfg = _load_yaml("configs/tft.yaml")
-    dataset = tft_cfg.get("dataset", "full_raw")
+    gru_cfg = _load_yaml("configs/gru.yaml")
+    dataset = gru_cfg.get("dataset", "full_raw")
     data_file = _resolve_data_file(data_cfg, dataset)
 
-    training_cfg = tft_cfg.get("training", {}) if isinstance(tft_cfg.get("training", {}), dict) else {}
-    data_cfg_tft = tft_cfg.get("data", {}) if isinstance(tft_cfg.get("data", {}), dict) else {}
-    spatial_cfg = tft_cfg.get("spatial_split", {}) if isinstance(tft_cfg.get("spatial_split", {}), dict) else {}
+    training_cfg = gru_cfg.get("training", {})
+    data_cfg_tft = gru_cfg.get("data", {})
+    spatial_cfg = gru_cfg.get("spatial_split", {})
 
     seed = int(training_cfg.get("seed", 40))
     in_len = int(data_cfg_tft.get("in_len", 52))
@@ -132,9 +132,6 @@ def main():
     )
 
     gws_full = _load_dataset(data_file)
-    n_ids = int(gws_full["id"].nunique()) if "id" in gws_full.columns else 0
-    if n_ids and spatial_clusters > n_ids:
-        spatial_clusters = n_ids
 
     split_path = resolve_split_path(ROOT / "splits", dataset, spatial_cfg)
     gws_bb, _ = load_or_create_split(
@@ -148,7 +145,7 @@ def main():
     )
 
     run_sig = _resolve_run_sig(
-        tft_cfg=tft_cfg,
+        tft_cfg=gru_cfg,
         dataset=dataset,
         in_len=in_len,
         out_len=out_len,
@@ -162,11 +159,6 @@ def main():
     run_dir = ROOT / "outputs" / "GRU_FCOV" / f"GRU_FCOV_{run_sig}"
     model_path = run_dir / "model.pt"
     scaler_path = run_dir / "scalers.pkl"
-    if not model_path.exists():
-        raise FileNotFoundError(f"Model not found: {model_path}")
-    if not scaler_path.exists():
-        raise FileNotFoundError(f"Scalers not found: {scaler_path}")
-
     with scaler_path.open("rb") as f:
         scalers = pickle.load(f)
     cov_scaler = scalers["cov_scaler"]
@@ -187,13 +179,9 @@ def main():
     x_past_all, x_future_all, y_all, x_static_all, meta = _build_windows(
         gws_bb, in_len, out_len, COV_COLS, well_stats, well_static
     )
-    if not meta:
-        raise ValueError("No windows created. Check data length and in/out lengths.")
 
     end_times = np.array([m[2] for m in meta])
     test_mask = end_times > np.datetime64(VAL_CUTOFF)
-    if test_mask.sum() == 0:
-        raise ValueError("No test windows found after VAL_CUTOFF.")
 
     x_past_val = x_past_all[test_mask]
     x_future_val = x_future_all[test_mask]
@@ -216,6 +204,7 @@ def main():
         dropout=checkpoint["dropout"],
         out_len=checkpoint["out_len"],
         static_input_size=checkpoint.get("static_input_size", 0),
+        use_revin=checkpoint.get("use_revin", False),
     ).to(device)
     model.load_state_dict(checkpoint["model"])
     model.eval()
