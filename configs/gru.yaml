@@ -21,6 +21,12 @@ training:
   num_workers: 10
   lr: 3e-4
   grad_clip: 1.0
+  lr_scheduler:
+    enabled: true
+    mode: min
+    factor: 0.5
+    patience: 5
+    min_lr: 0.0
   early_stopping:
     monitor: val_loss
     patience: 5
