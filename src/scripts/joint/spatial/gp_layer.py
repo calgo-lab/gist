@@ -5,6 +5,36 @@ import torch
 import torch.nn as nn
 
 
+def make_gp_layer(backend: str = "custom", **kwargs) -> nn.Module:
+    """
+    Factory that returns a GP layer for the requested backend.
+
+    backend == "custom"   → GPLayer  (hand-rolled exact GP, original implementation)
+    backend == "gpytorch" → SVGPLayer (gpytorch Matern-3/2 ARD, SVGP pretraining +
+                                       exact-GP joint forward with gradient through y_train)
+
+    kwargs are forwarded to the chosen constructor; unknown keys are silently
+    ignored so callers can pass a unified config dict.
+    """
+    backend = str(backend).strip().lower()
+    if backend == "gpytorch":
+        from gp_layer_gpytorch import SVGPLayer
+        accepted = {
+            "n_spatial_dims", "n_inducing", "nu", "jitter",
+            "use_float64", "init_noise", "noise_min", "noise_max",
+        }
+        return SVGPLayer(**{k: v for k, v in kwargs.items() if k in accepted})
+
+    if backend == "custom":
+        accepted = {
+            "n_spatial_dims", "init_length_scale", "init_output_scale",
+            "init_noise", "kernel_type", "isotropic", "jitter", "mll_diag_eps",
+        }
+        return GPLayer(**{k: v for k, v in kwargs.items() if k in accepted})
+
+    raise ValueError(f"Unknown GP backend: {backend!r}. Choose 'custom' or 'gpytorch'.")
+
+
 def matern32_kernel(X1, X2, length_scale, output_scale):
     diff = X1.unsqueeze(1) - X2.unsqueeze(0)
     r2 = (diff / length_scale).pow(2).sum(-1)
@@ -75,6 +105,16 @@ class GPLayer(nn.Module):
 
     def noise(self):
         return self._bounded(self.raw_noise, self.noise_min, self.noise_max)
+
+    def set_hyperparameters(self, length_scale: float | torch.Tensor, output_scale: float, noise: float) -> None:
+        """Set GP hyperparameters in constrained space from numeric values."""
+        ls_t = torch.as_tensor(length_scale, dtype=self.raw_length_scale.dtype, device=self.raw_length_scale.device)
+        os_t = torch.as_tensor(float(output_scale), dtype=self.raw_output_scale.dtype, device=self.raw_output_scale.device)
+        nz_t = torch.as_tensor(float(noise), dtype=self.raw_noise.dtype, device=self.raw_noise.device)
+        with torch.no_grad():
+            self.raw_length_scale.copy_(self._raw_from_init(ls_t, self.ls_min, self.ls_max))
+            self.raw_output_scale.copy_(self._raw_from_init(os_t, self.os_min, self.os_max))
+            self.raw_noise.copy_(self._raw_from_init(nz_t, self.noise_min, self.noise_max))
 
     def _kernel(self, X1, X2):
         ls = self.length_scale()

@@ -52,7 +52,12 @@ def default_gru_sig(gru_cfg):
     return f"in{in_len}_out{out_len}_ep{epochs}_bs{bs}_seed{seed}_{dataset}_{revin_tag}_spf{spf}_sc{sc_cnt}_ss{ss}"
 
 
-def run_gp(gru_run_sig, gp_run_tag, pretrain_steps, pretrain_lr, max_pretrain_pts, date_freq, jitter, kernel_type, isotropic):
+def run_gp(
+    gru_run_sig, gp_run_tag, pretrain_steps, pretrain_lr, max_pretrain_pts,
+    date_freq, jitter, kernel_type, isotropic,
+    backend="custom", n_inducing=64, variational_lr=1e-2, use_float64=True,
+    model_prefix="GRU_FCOV",
+):
     cmd = [
         PY,
         str(GP_EVAL),
@@ -65,9 +70,14 @@ def run_gp(gru_run_sig, gp_run_tag, pretrain_steps, pretrain_lr, max_pretrain_pt
         "--jitter", str(float(jitter)),
         "--kernel-type", str(kernel_type),
         "--isotropic", str(isotropic),
+        "--backend", str(backend),
+        "--n-inducing", str(int(n_inducing)),
+        "--variational-lr", str(float(variational_lr)),
+        "--use-float64", str(use_float64).lower(),
+        "--model-prefix", str(model_prefix),
     ]
     subprocess.run(cmd, check=True, env=os.environ.copy())
-    run_tag = f"GRU_FCOV_{gru_run_sig}__{gp_run_tag}__predobstrain"
+    run_tag = f"{model_prefix}_{gru_run_sig}__{gp_run_tag}__predobstrain"
     return ROOT / "outputs" / "gp" / run_tag
 
 
@@ -134,6 +144,11 @@ def main():
             jitter = float(cfg.get("jitter", 1e-5))
             kernel_type = str(cfg.get("kernel_type", "matern32"))
             isotropic = cfg.get("isotropic", True)
+            backend = str(cfg.get("backend", "custom"))
+            n_inducing = int(cfg.get("n_inducing", 64))
+            variational_lr = float(cfg.get("variational_lr", 1e-2))
+            use_float64 = cfg.get("use_float64", True)
+            model_prefix = str(cfg.get("model_prefix", "GRU_FCOV"))
 
             t0 = time.perf_counter()
             status = "ok"
@@ -150,6 +165,11 @@ def main():
                     jitter,
                     kernel_type,
                     isotropic,
+                    backend=backend,
+                    n_inducing=n_inducing,
+                    variational_lr=variational_lr,
+                    use_float64=use_float64,
+                    model_prefix=model_prefix,
                 )
                 obj = read_metric(run_dir, metric_name)
             except Exception as e:
@@ -194,15 +214,20 @@ def main():
         return
 
     runs_cfg = gp_cfg.get("runs", {}) if args.sweep else {}
-    gru_run_sigs = runs_cfg.get("gru_run_sigs", [str(gp_cfg.get("gru_run_sig", base_gru_sig))])
-    gp_run_tags = runs_cfg.get("gp_run_tags", [str(gp_cfg.get("gp_run_tag", "gp_pytorch"))])
-    pretrain_steps_list = runs_cfg.get("pretrain_steps", [int(gp_cfg.get("pretrain_steps", 200))])
-    pretrain_lr_list = runs_cfg.get("pretrain_lr", [float(gp_cfg.get("pretrain_lr", 1e-2))])
+    gru_run_sigs        = runs_cfg.get("gru_run_sigs",       [str(gp_cfg.get("gru_run_sig", base_gru_sig))])
+    gp_run_tags         = runs_cfg.get("gp_run_tags",        [str(gp_cfg.get("gp_run_tag", "gp_pytorch"))])
+    pretrain_steps_list = runs_cfg.get("pretrain_steps",     [int(gp_cfg.get("pretrain_steps", 200))])
+    pretrain_lr_list    = runs_cfg.get("pretrain_lr",        [float(gp_cfg.get("pretrain_lr", 1e-2))])
     max_pretrain_pts_list = runs_cfg.get("max_pretrain_pts", [int(gp_cfg.get("max_pretrain_pts", 2000))])
-    date_freq_list = runs_cfg.get("date_freq", [str(gp_cfg.get("date_freq", "ME"))])
-    jitter_list = runs_cfg.get("jitter", [float(gp_cfg.get("jitter", 1e-5))])
-    kernel_type_list = runs_cfg.get("kernel_type", [str(gp_cfg.get("kernel_type", "matern32"))])
-    isotropic_list = runs_cfg.get("isotropic", [gp_cfg.get("isotropic", True)])
+    date_freq_list      = runs_cfg.get("date_freq",          [str(gp_cfg.get("date_freq", "ME"))])
+    jitter_list         = runs_cfg.get("jitter",             [float(gp_cfg.get("jitter", 1e-5))])
+    kernel_type_list    = runs_cfg.get("kernel_type",        [str(gp_cfg.get("kernel_type", "matern32"))])
+    isotropic_list      = runs_cfg.get("isotropic",          [gp_cfg.get("isotropic", True)])
+    backend_list        = runs_cfg.get("backend",            [str(gp_cfg.get("backend", "custom"))])
+    n_inducing_list     = runs_cfg.get("n_inducing",         [int(gp_cfg.get("n_inducing", 64))])
+    variational_lr_list = runs_cfg.get("variational_lr",     [float(gp_cfg.get("variational_lr", 1e-2))])
+    use_float64_list    = runs_cfg.get("use_float64",        [gp_cfg.get("use_float64", True)])
+    model_prefix_list   = runs_cfg.get("model_prefix",       [str(gp_cfg.get("model", "GRU_FCOV"))])
 
     if not LOG.exists() or LOG.stat().st_size == 0:
         LOG.write_text(
@@ -220,8 +245,15 @@ def main():
         jitter_list,
         kernel_type_list,
         isotropic_list,
+        backend_list,
+        n_inducing_list,
+        variational_lr_list,
+        use_float64_list,
+        model_prefix_list,
     ):
-        gru_run_sig, gp_run_tag, pretrain_steps, pretrain_lr, max_pretrain_pts, date_freq, jitter, kernel_type, isotropic = values
+        (gru_run_sig, gp_run_tag, pretrain_steps, pretrain_lr, max_pretrain_pts,
+         date_freq, jitter, kernel_type, isotropic,
+         backend, n_inducing, variational_lr, use_float64, model_prefix) = values
         t0 = time.perf_counter()
         run_dir = run_gp(
             gru_run_sig,
@@ -233,6 +265,11 @@ def main():
             jitter,
             kernel_type,
             isotropic,
+            backend=backend,
+            n_inducing=n_inducing,
+            variational_lr=variational_lr,
+            use_float64=use_float64,
+            model_prefix=model_prefix,
         )
         obj = read_metric(run_dir, "NSE_id_median")
         run_s = round(time.perf_counter() - t0, 3)
