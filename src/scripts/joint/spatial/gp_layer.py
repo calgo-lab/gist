@@ -29,33 +29,52 @@ class GPLayer(nn.Module):
         kernel_type="matern32",
         isotropic=True,
         jitter=1e-5,
+        mll_diag_eps=1e-4,
     ):
         super().__init__()
         self.n_spatial_dims = n_spatial_dims
         self.kernel_type = str(kernel_type).lower()
         self.isotropic = bool(isotropic)
         self.jitter = jitter
+        self.mll_diag_eps = float(mll_diag_eps)
 
         if self.isotropic:
-            init_ls = torch.tensor(math.log(init_length_scale), dtype=torch.float32)
+            init_ls = torch.tensor(float(init_length_scale), dtype=torch.float32)
         else:
-            init_ls = torch.full((n_spatial_dims,), math.log(init_length_scale), dtype=torch.float32)
-        self.log_length_scale = nn.Parameter(init_ls)
-        self.log_output_scale = nn.Parameter(torch.tensor(math.log(init_output_scale)))
-        self.log_noise         = nn.Parameter(torch.tensor(math.log(init_noise)))
+            init_ls = torch.full((n_spatial_dims,), float(init_length_scale), dtype=torch.float32)
+
+        # Bound hyperparameters to numerically stable ranges.
+        self.ls_min, self.ls_max = 0.05, 20.0
+        self.os_min, self.os_max = 0.05, 20.0
+        self.noise_min, self.noise_max = 1e-4, 2.0
+
+        self.raw_length_scale = nn.Parameter(self._raw_from_init(init_ls, self.ls_min, self.ls_max))
+        self.raw_output_scale = nn.Parameter(
+            self._raw_from_init(torch.tensor(float(init_output_scale), dtype=torch.float32), self.os_min, self.os_max)
+        )
+        self.raw_noise = nn.Parameter(
+            self._raw_from_init(torch.tensor(float(init_noise), dtype=torch.float32), self.noise_min, self.noise_max)
+        )
 
     @staticmethod
-    def _softplus(x):
-        return nn.functional.softplus(x)
+    def _raw_from_init(v, lo, hi):
+        eps = 1e-6
+        v = v.clamp(min=lo + eps, max=hi - eps)
+        z = (v - lo) / (hi - lo)
+        return torch.logit(z.clamp(min=eps, max=1 - eps))
+
+    @staticmethod
+    def _bounded(raw, lo, hi):
+        return lo + (hi - lo) * torch.sigmoid(raw)
 
     def length_scale(self):
-        return self._softplus(self.log_length_scale)
+        return self._bounded(self.raw_length_scale, self.ls_min, self.ls_max)
 
     def output_scale(self):
-        return self._softplus(self.log_output_scale)
+        return self._bounded(self.raw_output_scale, self.os_min, self.os_max)
 
     def noise(self):
-        return self._softplus(self.log_noise)
+        return self._bounded(self.raw_noise, self.noise_min, self.noise_max)
 
     def _kernel(self, X1, X2):
         ls = self.length_scale()
@@ -115,16 +134,15 @@ class GPLayer(nn.Module):
         y_std = var.clamp(min=0).sqrt()
         return y_pred, y_std
 
-    def marginal_log_likelihood(
-        self,
-        X,
-        y,
-    ):
-        noise = self.noise()
+    def marginal_log_likelihood(self, X, y):
+        # Compute MLL in float64 for better Cholesky stability.
+        X = X.to(dtype=torch.float64)
+        y = y.to(dtype=torch.float64)
+        noise = self.noise().to(dtype=torch.float64)
         N = y.size(0)
 
-        K = self._kernel(X, X)
-        L = self._cholesky_with_jitter(K, noise.pow(2))
+        K = self._kernel(X, X).to(dtype=torch.float64)
+        L = self._cholesky_with_jitter(K, noise.pow(2) + self.mll_diag_eps)
         alpha = torch.cholesky_solve(y.unsqueeze(-1), L).squeeze(-1)
 
         data_fit   = 0.5 * (y * alpha).sum()

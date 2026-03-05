@@ -75,17 +75,36 @@ def pretrain_gp_kernel(
 
     gp.train()
     if X_train.size(0) > max_train_pts:
-        idx = torch.randperm(X_train.size(0), device=device)[:max_train_pts]
+        idx = torch.randperm(X_train.size(0), device=X_train.device)[:max_train_pts]
         X_s, y_s = X_train[idx], y_train[idx]
     else:
         X_s, y_s = X_train, y_train
 
-    opt = torch.optim.Adam(gp.parameters(), lr=lr)
+    # Run MLL pretraining on CPU float64 for numerical stability.
+    X_s = X_s.detach().to(device=torch.device("cpu"), dtype=torch.float64)
+    y_s = y_s.detach().to(device=torch.device("cpu"), dtype=torch.float64)
+    gp_pre = GPLayer(
+        n_spatial_dims=gp.n_spatial_dims,
+        kernel_type=gp.kernel_type,
+        isotropic=gp.isotropic,
+        jitter=gp.jitter,
+        mll_diag_eps=getattr(gp, "mll_diag_eps", 1e-4),
+    )
+    gp_pre.load_state_dict(gp.state_dict())
+    gp_pre = gp_pre.to(device=torch.device("cpu"), dtype=torch.float64)
+
+    start_ls = float(gp.length_scale().detach().float().view(-1)[0].item())
+    start_os = float(gp.output_scale().detach().float().view(-1)[0].item())
+    start_nz = float(gp.noise().detach().float().view(-1)[0].item())
+    cur_lr = float(lr)
+    opt = torch.optim.Adam(gp_pre.parameters(), lr=cur_lr)
+    steps_ok = 0
+
     for step in range(n_steps):
-        last_good = {k: v.detach().clone() for k, v in gp.state_dict().items()}
+        last_good = {k: v.detach().clone() for k, v in gp_pre.state_dict().items()}
         opt.zero_grad()
         try:
-            loss = gp.marginal_log_likelihood(X_s, y_s)
+            loss = gp_pre.marginal_log_likelihood(X_s, y_s)
         except RuntimeError as e:
             print(f"    mll failed at step {step + 1}/{n_steps}: {e}")
             print("    continue without more pretrain steps for this horizon")
@@ -94,12 +113,54 @@ def pretrain_gp_kernel(
             print(f"    non-finite mll at step {step + 1}/{n_steps}; stop pretrain for this horizon")
             break
         loss.backward()
+        grad_norm = torch.nn.utils.clip_grad_norm_(gp_pre.parameters(), max_norm=5.0)
+        if not torch.isfinite(grad_norm):
+            gp_pre.load_state_dict(last_good)
+            cur_lr *= 0.5
+            if cur_lr < 1e-6:
+                print("    grad norm non-finite and lr too small; stop pretrain for this horizon")
+                break
+            for pg in opt.param_groups:
+                pg["lr"] = cur_lr
+            print(f"    non-finite grad norm; rollback step and reduce lr to {cur_lr:.2e}")
+            continue
         opt.step()
-        if not _params_finite(gp):
-            gp.load_state_dict(last_good)
-            print(f"    non-finite params after step {step + 1}/{n_steps}; restore last good state and stop pretrain")
-            break
+        if not _params_finite(gp_pre):
+            gp_pre.load_state_dict(last_good)
+            cur_lr *= 0.5
+            if cur_lr < 1e-6:
+                print(f"    non-finite params after step {step + 1}/{n_steps}; restore and stop pretrain")
+                break
+            for pg in opt.param_groups:
+                pg["lr"] = cur_lr
+            print(f"    non-finite params after step {step + 1}/{n_steps}; rollback and reduce lr to {cur_lr:.2e}")
+            continue
+        steps_ok += 1
+
+    # Copy trained parameters back to runtime GP module.
+    if _params_finite(gp_pre):
+        gp.load_state_dict(gp_pre.state_dict())
+
     gp.eval()
+    end_ls = float(gp.length_scale().detach().float().view(-1)[0].item())
+    end_os = float(gp.output_scale().detach().float().view(-1)[0].item())
+    end_nz = float(gp.noise().detach().float().view(-1)[0].item())
+    changed = (
+        abs(end_ls - start_ls) > 1e-6
+        or abs(end_os - start_os) > 1e-6
+        or abs(end_nz - start_nz) > 1e-6
+    )
+    return {
+        "steps_ok": steps_ok,
+        "lr_final": cur_lr,
+        "changed": changed,
+        "ls_start": start_ls,
+        "os_start": start_os,
+        "nz_start": start_nz,
+        "ls_end": end_ls,
+        "os_end": end_os,
+        "nz_end": end_nz,
+    }
 
 
 def main():
@@ -236,8 +297,10 @@ def main():
                 jitter=args.jitter,
             ).to(device)
             print(f"  horizon {h}: pre-training GP kernel ({args.pretrain_steps} steps) on {X_all.size(0)} pts ...")
-            pretrain_gp_kernel(gp, X_all, y_all, n_steps=args.pretrain_steps, lr=args.pretrain_lr,
-                               max_train_pts=args.max_pretrain_pts, device=device)
+            pretrain_stats = pretrain_gp_kernel(
+                gp, X_all, y_all, n_steps=args.pretrain_steps, lr=args.pretrain_lr,
+                max_train_pts=args.max_pretrain_pts, device=device
+            )
             ls = gp.length_scale().detach().float().view(-1)[0].item()
             os_ = gp.output_scale().detach().float().view(-1)[0].item()
             nz = gp.noise().detach().float().view(-1)[0].item()
@@ -253,6 +316,12 @@ def main():
                 os_ = gp.output_scale().detach().float().view(-1)[0].item()
                 nz = gp.noise().detach().float().view(-1)[0].item()
             print(f"    ls={ls:.4f}  os={os_:.4f}  noise={nz:.4f}")
+            print(
+                "    pretrain_effect:"
+                f" steps_ok={pretrain_stats['steps_ok']}"
+                f" changed={pretrain_stats['changed']}"
+                f" lr_final={pretrain_stats['lr_final']:.2e}"
+            )
 
         for dt in dates:
             gws_dt = gws[gws["datum"] == dt][["id", "gws", "x_25833", "y_25833"]]
