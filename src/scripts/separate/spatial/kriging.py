@@ -131,10 +131,16 @@ def main():
     pred = None
     if kriging_source == "pred":
         pred = pq.read_table(pred_path).to_pandas()
-        pred = pred.rename(columns={"gws": "gws_pred"})
+        if "gws_pred" not in pred.columns and "gws" in pred.columns:
+            pred = pred.rename(columns={"gws": "gws_pred"})
+        if "datum" not in pred.columns and "time" in pred.columns:
+            pred = pred.rename(columns={"time": "datum"})
         pred["datum"] = pd.to_datetime(pred["datum"])
-        pred["startzeitpunkt"] = pd.to_datetime(pred["startzeitpunkt"])
-        pred["horizon"] = ((pred["datum"] - pred["startzeitpunkt"]) / pd.Timedelta(weeks=1)) + 1
+        if "horizon" not in pred.columns and "startzeitpunkt" in pred.columns:
+            pred["startzeitpunkt"] = pd.to_datetime(pred["startzeitpunkt"])
+            pred["horizon"] = ((pred["datum"] - pred["startzeitpunkt"]) / pd.Timedelta(weeks=1)) + 1
+        if "horizon" not in pred.columns:
+            raise ValueError("Prediction file must contain 'horizon' or 'startzeitpunkt' to derive it.")
 
     split = pd.read_csv(split_path)
     train_ids = set(split.loc[split["spatial_split"] == "spatial_train", "id"])
@@ -154,8 +160,12 @@ def main():
     lookup_ids = pd.DataFrame(ids_keep, columns=["id"]).reset_index()
 
     if pred is not None:
-        pred = pred.merge(lookup_ids, on="index", how="left")
-        pred = pred.merge(coords, on="id", how="left")
+        if "id" not in pred.columns:
+            if "index" not in pred.columns:
+                raise ValueError("Prediction file has neither 'id' nor 'index'.")
+            pred = pred.merge(lookup_ids, on="index", how="left")
+        if not {"x_25833", "y_25833"}.issubset(pred.columns):
+            pred = pred.merge(coords, on="id", how="left")
 
     def _split_list(value):
         if value is None:
