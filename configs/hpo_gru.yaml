@@ -1,4 +1,4 @@
-name: gru_small_grid_v1
+name: gru_small_grid_v2
 max_trials: 12
 random_seed: 42
 objective:
@@ -7,7 +7,7 @@ objective:
   metric: RMSE
   mode: min
 search_space:
-  model.gru_layers: [1, 2, 3]
-  model.gru_hidden: [96, 128, 192]
-  model.gru_dropout: [0.1, 0.2, 0.3]
-  training.lr: [0.0001, 0.0003, 0.001]
+  model.gru_layers: [2, 3, 4]
+  model.gru_hidden: [192, 224, 256]
+  model.gru_dropout: [0.2]
+  training.lr: [0.0002, 0.0003, 0.0004, 0.0005]
