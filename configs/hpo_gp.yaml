@@ -1,13 +1,16 @@
-name: gp_stability_v1
-max_trials: 9
+name: gp_gpytorch_hpo_v1
+max_trials: 12
 random_seed: 42
 objective:
-  metric: NSE_id_median
-  mode: max
+  metric: nRMSE
+  mode: min
 search_space:
+  backend: [gpytorch]
+  n_inducing: [32, 64, 128]
+  jitter: [0.0001, 0.001]
+  use_float64: [true]
+  pretrain_steps: [50, 100, 200]
+  variational_lr: [0.001, 0.01]
+  max_pretrain_pts: [512, 2048]
   kernel_type: [matern32]
   isotropic: [true]
-  pretrain_steps: [0, 1, 2, 5]
-  pretrain_lr: [1e-4, 5e-4]
-  max_pretrain_pts: [1024]
-  jitter: [0.001]
