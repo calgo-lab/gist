@@ -7,7 +7,7 @@ objective:
 search_space:
   kernel_type: [matern32]
   isotropic: [true]
-  pretrain_steps: [0]
-  pretrain_lr: [0.001]
+  pretrain_steps: [0, 1, 2, 5]
+  pretrain_lr: [1e-4, 5e-4]
   max_pretrain_pts: [1024]
-  jitter: [0.001, 0.01]
+  jitter: [0.001]
