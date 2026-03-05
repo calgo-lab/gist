@@ -192,9 +192,7 @@ def pretrain_svgp_kernel(
     if hasattr(gp, "initialize_inducing"):
         gp.initialize_inducing(X_s)
 
-    opt = torch.optim.Adam(list(gp.parameters()) + (
-        list(gp.likelihood.parameters()) if hasattr(gp, "likelihood") else []
-    ), lr=lr)
+    opt = torch.optim.Adam(gp.parameters(), lr=lr)
 
     start_ls = float(gp.length_scale().detach().float().view(-1)[0].item()) if hasattr(gp, "length_scale") else float("nan")
     start_os = float(gp.output_scale().detach().float().view(-1)[0].item()) if hasattr(gp, "output_scale") else float("nan")

@@ -119,6 +119,11 @@ class SVGPLayer(nn.Module):
             target = target.clamp(lo, hi)
             self.likelihood.noise = target
 
+        
+        with torch.no_grad():
+            self.svgp.covar_module.base_kernel.lengthscale = torch.ones(1, n_spatial_dims)
+            self.svgp.covar_module.outputscale = torch.tensor(1.0)
+
         if use_float64:
             self.svgp = self.svgp.double()
             self.likelihood = self.likelihood.double()
