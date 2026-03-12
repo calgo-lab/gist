@@ -2,6 +2,7 @@ from pathlib import Path
 import pickle
 import re
 import sys
+import argparse
 
 import numpy as np
 import pandas as pd
@@ -109,8 +110,12 @@ def _build_windows(df, in_len, out_len, cov_cols, well_stats, well_static, targe
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", default="configs/gru.yaml")
+    args = parser.parse_args()
+
     data_cfg = _load_yaml("configs/data.yaml")
-    gru_cfg = _load_yaml("configs/gru.yaml")
+    gru_cfg = _load_yaml(args.config)
     dataset = gru_cfg.get("dataset", "full_raw")
     data_file = _resolve_data_file(data_cfg, dataset)
 
