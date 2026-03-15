@@ -1,0 +1,91 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gw-gru-hpo-a100
+  labels:
+    app: gw-gru-hpo
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: gw-gru-hpo
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        gpu: a100
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - cl-worker24
+      volumes:
+      - name: gw-pred-rwx
+        persistentVolumeClaim:
+          claimName: gw-pred-rwx
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: "16Gi"
+      containers:
+      - name: gru-hpo
+        image: row56/gw-pred:py312-cu124
+        imagePullPolicy: Always
+        resources:
+          requests:
+            cpu: "16"
+            memory: 64Gi
+            nvidia.com/gpu: 1
+          limits:
+            memory: 64Gi
+            nvidia.com/gpu: 1
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        - name: HPO_CONFIG
+          value: "configs/gru/hpo_gru.yaml"
+        volumeMounts:
+        - name: gw-pred-rwx
+          mountPath: /storage
+        - name: dshm
+          mountPath: /dev/shm
+        command: ["bash", "-lc"]
+        args:
+        - |
+          set -euo pipefail
+          source /storage/venv/bin/activate
+
+          WORKDIR="/tmp/gwl-gru-hpo"
+          rsync -a /storage/gwl-interpolation/ "${WORKDIR}/"
+          cd "${WORKDIR}"
+
+          python - <<'PY'
+          from pathlib import Path
+          import yaml
+
+          repo_src = Path("/storage/gwl-interpolation").resolve()
+          p = Path("configs/data.yaml")
+          cfg = yaml.safe_load(p.read_text()) or {}
+          for k in ["sample_path", "full_raw_path", "full_merged_path", "metadata_path"]:
+              v = cfg.get(k)
+              if not v:
+                  continue
+              pv = Path(str(v))
+              if not pv.is_absolute():
+                  cfg[k] = str((repo_src / pv).resolve())
+          p.write_text(yaml.safe_dump(cfg, sort_keys=False))
+          PY
+
+          mkdir -p /storage/gwl-interpolation/reports/gru/hpo/logs
+          {
+            echo "=== GRU HPO ==="
+            time python src/scripts/joint/temporal/gru_runs.py --hpo-config "${HPO_CONFIG}"
+          } 2>&1 | tee "/storage/gwl-interpolation/reports/gru/hpo/logs/gru_hpo.log"
+
+          rsync -a "reports/gru/hpo/" "/storage/gwl-interpolation/reports/gru/hpo/"
+          rsync -a "outputs/GRU_FCOV/" "/storage/gwl-interpolation/outputs/GRU_FCOV/"
