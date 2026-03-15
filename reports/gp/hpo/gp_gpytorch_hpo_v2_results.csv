@@ -1,0 +1,13 @@
+trial,gru_run_sig,gp_run_tag,status,objective,elapsed_s,error,hp.backend,hp.isotropic,hp.jitter,hp.kernel_type,hp.max_pretrain_pts,hp.n_inducing,hp.pretrain_steps,hp.use_float64,hp.variational_lr
+1,gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42,gp_gpytorch_hpo_v2_t001,ok,0.2095011425737107,118.668,,gpytorch,True,0.001,matern32,128,32,100,True,0.01
+2,gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42,gp_gpytorch_hpo_v2_t002,ok,0.20984772155735162,37.722,,gpytorch,True,0.0001,matern32,128,128,100,True,0.01
+3,gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42,gp_gpytorch_hpo_v2_t003,ok,0.2526086729259357,31.345,,gpytorch,True,0.0001,matern32,128,64,0,True,0.01
+4,gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42,gp_gpytorch_hpo_v2_t004,ok,0.2552630723481104,32.032,,gpytorch,True,0.001,matern32,128,64,0,True,0.01
+5,gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42,gp_gpytorch_hpo_v2_t005,ok,0.20996169873066817,38.524,,gpytorch,True,0.001,matern32,128,64,100,True,0.01
+6,gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42,gp_gpytorch_hpo_v2_t006,ok,0.2552630723481104,31.493,,gpytorch,True,0.001,matern32,128,32,0,True,0.01
+7,gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42,gp_gpytorch_hpo_v2_t007,ok,0.20966255844195192,36.679,,gpytorch,True,0.001,matern32,128,128,100,True,0.01
+8,gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42,gp_gpytorch_hpo_v2_t008,ok,0.20917610527505645,36.509,,gpytorch,True,0.0001,matern32,128,64,100,True,0.01
+9,gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42,gp_gpytorch_hpo_v2_t009,ok,0.2526086729259357,32.336,,gpytorch,True,0.0001,matern32,128,128,0,True,0.01
+10,gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42,gp_gpytorch_hpo_v2_t010,ok,0.2526086729259357,32.71,,gpytorch,True,0.0001,matern32,128,32,0,True,0.01
+11,gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42,gp_gpytorch_hpo_v2_t011,ok,0.20928728174550845,36.557,,gpytorch,True,0.0001,matern32,128,32,100,True,0.01
+12,gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42,gp_gpytorch_hpo_v2_t012,ok,0.2552630723481104,31.229,,gpytorch,True,0.001,matern32,128,128,0,True,0.01

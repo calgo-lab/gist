@@ -1,0 +1,5 @@
+trial_id,run_sig,status,objective,hp.model.gru_layers,hp.model.gru_hidden,hp.model.gru_dropout,hp.training.lr
+004,gru_small_grid_v1_t004_seed40_full_merged,ok,0.2280871869618116,3,192,0.2,0.0003
+003,gru_small_grid_v1_t003_seed40_full_merged,ok,0.2216163617859508,2,192,0.2,0.0003
+008,gru_small_grid_v1_t008_seed40_full_merged,ok,0.2467344039296694,3,96,0.1,0.001
+010,gru_small_grid_v1_t010_seed40_full_merged,ok,0.2239165263514372,2,96,0.2,0.0001

@@ -1,0 +1,13 @@
+trial,status,objective,run_sig,gru_dropout,gru_hidden,gru_layers,lr
+1,ok,0.2303948749355118,gru_small_grid_v2_t001_seed40_full_merged,0.2,192,4,0.0003
+2,ok,0.2651402611680664,gru_small_grid_v2_t002_seed40_full_merged,0.2,224,2,0.0002
+3,ok,0.2280871869618116,gru_small_grid_v2_t003_seed40_full_merged,0.2,192,3,0.0003
+4,ok,0.231139509458691,gru_small_grid_v2_t004_seed40_full_merged,0.2,256,2,0.0005
+5,ok,0.2290918360569006,gru_small_grid_v2_t005_seed40_full_merged,0.2,256,4,0.0002
+6,ok,0.2331020323876192,gru_small_grid_v2_t006_seed40_full_merged,0.2,224,3,0.0005
+7,ok,0.2316776687671754,gru_small_grid_v2_t007_seed40_full_merged,0.2,256,3,0.0004
+8,ok,0.2610970108196803,gru_small_grid_v2_t008_seed40_full_merged,0.2,256,2,0.0003
+9,ok,0.2575511951616764,gru_small_grid_v2_t009_seed40_full_merged,0.2,224,4,0.0004
+10,ok,0.2684607076243711,gru_small_grid_v2_t010_seed40_full_merged,0.2,256,2,0.0004
+11,ok,0.2364536459420272,gru_small_grid_v2_t011_seed40_full_merged,0.2,256,3,0.0005
+12,ok,0.2428449037785725,gru_small_grid_v2_t012_seed40_full_merged,0.2,192,4,0.0004

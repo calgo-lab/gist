@@ -14,6 +14,9 @@ TFT_SUMMARY = ROOT / "reports" / "tft" / "metrics" / "tft_metrics_summary.csv"
 
 FULL_CSV = METRICS_DIR / "gru_metrics_summary.csv"
 SPARSE_CSV = METRICS_DIR / "gru_metrics_summary_sparse.csv"
+HPO_SPARSE_CSV = METRICS_DIR / "gru_metrics_summary_hpo_sparse.csv"
+HPO_BASELINE_TABLE_CSV = METRICS_DIR / "gru_hpo_vs_baseline_summary.csv"
+BASELINE_RUN_SIG = "gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42"
 
 RUN_RE = re.compile(
     r"^GRU_FCOV_"
@@ -151,6 +154,7 @@ def collect() -> pd.DataFrame:
         )
 
         m = metrics_by_well_horizon(pred_df)
+        m["run_sig"] = run_sig
         m["seed"] = meta["seed"]
         m["run"] = label
         parts.append(m)
@@ -159,12 +163,8 @@ def collect() -> pd.DataFrame:
 
 
 def aggregate(raw: pd.DataFrame) -> pd.DataFrame:
-    by_seed = (
-        raw.groupby(["run", "seed", "horizon"], as_index=False)[["NSE", "RMSE", "MAE", "rMBE"]]
-        .median()
-    )
     out = (
-        by_seed.groupby(["run", "horizon"], as_index=False)[["NSE", "RMSE", "MAE", "rMBE"]]
+        raw.groupby(["run_sig", "run", "seed", "horizon"], as_index=False)[["NSE", "RMSE", "MAE", "rMBE"]]
         .median()
     )
     out["skill_vs_persistence"] = np.nan
@@ -184,7 +184,7 @@ def sort_key(run_name: str) -> tuple:
     return (order.get(dataset, 9), in_len, out_len, epochs, layers, run_name)
 
 
-def legend_label(run_name: str) -> str:
+def legend_label(run_name: str, run_sig: str | None = None) -> str:
     m = re.match(r"^gru(?:_l(\d+))?_in\d+_out\d+_ep\d+_.+$", run_name)
     if m and m.group(1):
         base = f"gru {int(m.group(1))}-layer"
@@ -201,19 +201,44 @@ def legend_label(run_name: str) -> str:
         tags.append("no-sched")
 
     if tags:
-        return f"{base} " + " ".join(tags)
+        base = f"{base} " + " ".join(tags)
+
+    if run_sig:
+        tm = re.search(r"_t(\d{3})_", run_sig)
+        if tm:
+            base = f"{base} t{tm.group(1)}"
     return base
 
 
 def plot_nse(final: pd.DataFrame) -> None:
     fig, ax = plt.subplots(figsize=(9, 5))
-    plot_df = final[
-        final["run"].str.contains("_ep50_", na=False)
-        & final["run"].str.contains("spf0p8", na=False)
-    ].copy()
-    for run_label in plot_df["run"].unique():
-        sub = plot_df[plot_df["run"] == run_label].sort_values("horizon")
-        ax.plot(sub["horizon"], sub["NSE"], marker="o", markersize=4, label=legend_label(run_label))
+    hpo_df = final[final["run_sig"].str.contains(r"_t\d{3}_", regex=True, na=False)].copy()
+    baseline_df = final[final["run_sig"] == BASELINE_RUN_SIG].copy()
+
+    if not hpo_df.empty:
+        hpo_rank = (
+            hpo_df.groupby(["run_sig", "run"], as_index=False)["NSE"]
+            .mean()
+            .rename(columns={"NSE": "NSE_mean_h1_16"})
+            .sort_values("NSE_mean_h1_16", ascending=False)
+        )
+        top5 = hpo_rank.head(5)["run_sig"].tolist()
+    else:
+        top5 = []
+
+    chosen = set(top5)
+    if not baseline_df.empty:
+        chosen.add(BASELINE_RUN_SIG)
+
+    plot_df = final[final["run_sig"].isin(chosen)].copy()
+    for run_sig in sorted(plot_df["run_sig"].unique()):
+        sub = plot_df[plot_df["run_sig"] == run_sig].sort_values("horizon")
+        if run_sig == BASELINE_RUN_SIG:
+            lbl = "gru 2-layer baseline"
+        else:
+            tm = re.search(r"_t(\d{3})_", str(run_sig))
+            lbl = f"gru hpo t{tm.group(1)}" if tm else legend_label(str(sub["run"].iloc[0]), run_sig)
+        ax.plot(sub["horizon"], sub["NSE"], marker="o", markersize=4, label=lbl)
 
     # Overlay a TFT reference line (if available) for direct comparison in one figure.
     if TFT_SUMMARY.exists():
@@ -232,7 +257,7 @@ def plot_nse(final: pd.DataFrame) -> None:
 
     ax.set_xlabel("Forecast horizon (weeks)")
     ax.set_ylabel("NSE (median across wells)")
-    ax.set_title("GRU NSE by forecast horizon")
+    ax.set_title("GRU NSE by Forecast Horizon (Baseline + Top5 HPO)")
     ax.legend(fontsize=8, frameon=False)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
@@ -241,7 +266,7 @@ def plot_nse(final: pd.DataFrame) -> None:
 
     sparse_horizons = [1, 8, 16]
     sparse = final[final["horizon"].isin(sparse_horizons)].copy()
-    sparse = sparse[["horizon", "run", "NSE", "RMSE"]]
+    sparse = sparse[["horizon", "run", "run_sig", "NSE", "RMSE"]]
     sparse["run_order"] = sparse["run"].map(sort_key)
     sparse = sparse.sort_values(["horizon", "run_order"]).drop(columns="run_order")
     sparse.to_csv(SPARSE_CSV, index=False)
@@ -249,6 +274,59 @@ def plot_nse(final: pd.DataFrame) -> None:
     print(f"Wrote: {FULL_CSV}")
     print(f"Wrote: {SPARSE_CSV}")
     print(f"Wrote: {FIG_DIR / 'gru_nse_by_horizon.png'}")
+
+
+def plot_nse_hpo(final: pd.DataFrame) -> None:
+    fig, ax = plt.subplots(figsize=(9, 5))
+    hpo_df = final[final["run_sig"].str.contains(r"_t\d{3}_", regex=True, na=False)].copy()
+    if hpo_df.empty:
+        print("No HPO runs found for HPO-only figure.")
+        return
+
+    for run_sig in sorted(hpo_df["run_sig"].unique()):
+        sub = hpo_df[hpo_df["run_sig"] == run_sig].sort_values("horizon")
+        tm = re.search(r"_t(\d{3})_", str(run_sig))
+        lbl = f"trial t{tm.group(1)}" if tm else str(run_sig)
+        ax.plot(sub["horizon"], sub["NSE"], marker="o", markersize=3, label=lbl)
+
+    ax.set_xlabel("Forecast horizon (weeks)")
+    ax.set_ylabel("NSE (median across wells)")
+    ax.set_title("GRU HPO Trials NSE by Forecast Horizon")
+    ax.legend(fontsize=8, frameon=False, ncol=2)
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    out_fig = FIG_DIR / "gru_hpo_nse_by_horizon.png"
+    fig.savefig(out_fig, dpi=200)
+    plt.close(fig)
+
+    sparse_horizons = [1, 8, 16]
+    sparse = hpo_df[hpo_df["horizon"].isin(sparse_horizons)][["horizon", "run", "run_sig", "NSE", "RMSE"]].copy()
+    sparse.to_csv(HPO_SPARSE_CSV, index=False)
+    print(f"Wrote: {HPO_SPARSE_CSV}")
+    print(f"Wrote: {out_fig}")
+
+
+def write_hpo_baseline_table(final: pd.DataFrame) -> None:
+    hpo_df = final[final["run_sig"].str.contains(r"_t\d{3}_", regex=True, na=False)].copy()
+    baseline_df = final[final["run_sig"] == BASELINE_RUN_SIG].copy()
+    comp = pd.concat([hpo_df, baseline_df], ignore_index=True)
+    if comp.empty:
+        print("No HPO/baseline rows found for comparison table.")
+        return
+
+    by_run = (
+        comp.groupby(["run_sig", "run"], as_index=False)
+        .agg(NSE_mean_h1_16=("NSE", "mean"), RMSE_mean_h1_16=("RMSE", "mean"))
+    )
+    h16 = comp[comp["horizon"] == 16][["run_sig", "NSE", "RMSE"]].rename(
+        columns={"NSE": "NSE_h16", "RMSE": "RMSE_h16"}
+    )
+    out = by_run.merge(h16, on="run_sig", how="left")
+    out["is_baseline"] = out["run_sig"] == BASELINE_RUN_SIG
+    out["is_hpo"] = out["run_sig"].str.contains(r"_t\d{3}_", regex=True, na=False)
+    out = out.sort_values(["is_baseline", "NSE_mean_h1_16"], ascending=[False, False])
+    out.to_csv(HPO_BASELINE_TABLE_CSV, index=False)
+    print(f"Wrote: {HPO_BASELINE_TABLE_CSV}")
 
 
 def main() -> None:
@@ -266,6 +344,8 @@ def main() -> None:
     final.to_csv(FULL_CSV, index=False)
 
     plot_nse(final)
+    plot_nse_hpo(final)
+    write_hpo_baseline_table(final)
 
 
 if __name__ == "__main__":

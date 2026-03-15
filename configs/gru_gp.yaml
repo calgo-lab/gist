@@ -1,0 +1,45 @@
+dataset: full_merged
+run_sig: auto
+data:
+  in_len: 52
+  out_len: 16
+model:
+  gru_hidden: 128
+  gru_layers: 2
+  gru_dropout: 0.2
+  use_revin: false
+training:
+  epochs: 50
+  seed: 40
+  grad_clip: 1.0
+  early_stopping:
+    patience: 5
+    min_delta: 0.0001
+    mode: min
+spatial_split:
+  file: splits/spatial_split_full_merged_spf0p8_sc20_ss42.csv
+  train_fraction: 0.8
+  cluster_count: 20
+  split_seed: 42
+  exclude_terms: geometry,x_25833,y_25833
+spatial_gp:
+  backend: gpytorch
+  n_inducing: 64
+  jitter: 0.0001
+  use_float64: true
+  init_noise: 0.1
+  lambda_spatial: 0.5
+  gp_pretrain_steps: 100
+  variational_lr: 0.01
+joint:
+  gru_lr: 0.0003
+  gp_lr: 0.001
+  gru_pretrained_run_sig: ''
+  spatial_val_fraction: 0.5
+  min_train_wells: 5
+  min_val_wells: 2
+  val_gp_stride: 4
+wandb:
+  project: gw-pred
+  entity: gw-pred
+  enabled: true

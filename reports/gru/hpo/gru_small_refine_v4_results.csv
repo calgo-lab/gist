@@ -1,0 +1,10 @@
+trial,run_sig,status,objective,train_s,eval_s,elapsed_s,error,hp.model.gru_dropout,hp.model.gru_hidden,hp.model.gru_layers,hp.training.lr
+1,gru_small_refine_v4_t001_seed40_full_merged,ok,0.26574145576783176,2376.548,295.749,2672.339,,0.2,176,4,0.00035
+2,gru_small_refine_v4_t002_seed40_full_merged,ok,0.2401268077999997,2254.017,276.232,2530.252,,0.2,192,4,0.00035
+3,gru_small_refine_v4_t003_seed40_full_merged,ok,0.2453051637191828,2432.345,236.976,2669.324,,0.2,192,4,0.000375
+4,gru_small_refine_v4_t004_seed40_full_merged,ok,0.2381395907293347,2734.832,290.339,3025.175,,0.2,176,4,0.000375
+5,gru_small_refine_v4_t005_seed40_full_merged,ok,0.24284490377857257,2429.576,235.293,2664.872,,0.2,192,4,0.0004
+6,gru_small_refine_v4_t006_seed40_full_merged,ok,0.23707081770320948,852.94,281.444,1134.387,,0.2,160,4,0.0004
+7,gru_small_refine_v4_t007_seed40_full_merged,ok,0.2239427004401138,2274.317,237.203,2511.522,,0.2,176,4,0.0004
+8,gru_small_refine_v4_t008_seed40_full_merged,ok,0.23935953880190572,1194.489,265.878,1460.369,,0.2,160,4,0.00035
+9,gru_small_refine_v4_t009_seed40_full_merged,ok,0.228454848089898,1035.803,223.877,1259.684,,0.2,160,4,0.000375

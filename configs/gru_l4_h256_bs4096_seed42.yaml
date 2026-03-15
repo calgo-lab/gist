@@ -1,11 +1,11 @@
 dataset: full_merged
 model:
-  gru_hidden: 192
+  gru_hidden: 256
   gru_layers: 4
   gru_dropout: 0.2
   dropout: 0.2
   use_revin: false
-run_sig: auto
+run_sig: gru_l4_h256_bs4096_seed42_ep50
 data:
   in_len: 52
   out_len: 16
@@ -13,7 +13,7 @@ data:
 training:
   epochs: 50
   batch_size: 4096
-  seed: 40
+  seed: 42
   num_workers: 10
   lr: 0.0002
   grad_clip: 1.0
@@ -30,7 +30,7 @@ training:
     mode: min
 spatial_split:
   file: splits/spatial_split_full_merged_spf0p8_sc20_ss42_90_10.csv
-  train_fraction: 0.9
+  train_fraction: 0.8
   cluster_count: 20
   split_seed: 42
   exclude_terms: geometry,x_25833,y_25833

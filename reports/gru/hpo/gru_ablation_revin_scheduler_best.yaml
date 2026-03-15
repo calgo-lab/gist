@@ -1,0 +1,14 @@
+hpo_name: gru_ablation_revin_scheduler
+objective_mode: min
+best_objective: 0.16122327901480932
+best_trial:
+  trial: 1
+  run_sig: gru_ablation_revin_scheduler_t001_seed40_full_merged
+  status: ok
+  objective: 0.16122327901480932
+  train_s: 846.884
+  eval_s: 229.706
+  elapsed_s: 1076.616
+  error: ''
+  hp.model.use_revin: true
+  hp.training.lr_scheduler.enabled: false

@@ -207,6 +207,40 @@ class SVGPLayer(nn.Module):
         return -mll(output, y_train.to(dt))
 
     # ------------------------------------------------------------------
+    # Exact MLL (for kernel pretraining — same convention as GPLayer)
+    # ------------------------------------------------------------------
+
+    def marginal_log_likelihood(self, X: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        """
+        Exact GP negative log-likelihood (scalar, to be minimised).
+
+        Uses the same Cholesky path as forward(), so float64 is applied
+        automatically when use_float64=True.  Only kernel params + noise
+        receive gradients; call with model in train() mode.
+        """
+        import math as _math
+        dt = self._work_dtype
+        X = X.to(dt)
+        y = y.to(dt)
+        n = y.size(0)
+
+        with gpytorch.settings.debug(False):
+            K = self.svgp.covar_module(X).evaluate().to(dt)
+
+        noise_var = self.likelihood.noise.to(dt)
+        reg = (noise_var + self.jitter) * torch.eye(n, dtype=dt, device=K.device)
+        K_reg = 0.5 * (K + K.T) + reg
+
+        L = self._chol_safe(K_reg)
+        alpha = torch.cholesky_solve(y.unsqueeze(-1), L).squeeze(-1)
+
+        data_fit  = 0.5 * (y * alpha).sum()
+        complexity = L.diagonal().log().sum()
+        constant   = 0.5 * n * _math.log(2 * _math.pi)
+
+        return data_fit + complexity + constant
+
+    # ------------------------------------------------------------------
     # Compatibility shims matching old GPLayer interface
     # ------------------------------------------------------------------
 

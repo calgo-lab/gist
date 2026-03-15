@@ -163,6 +163,91 @@ def pretrain_gp_kernel(
     }
 
 
+def pretrain_mll_kernel(
+    gp,
+    X_train: torch.Tensor,
+    y_train: torch.Tensor,
+    n_steps: int = 200,
+    lr: float = 1e-2,
+    max_train_pts: int = 2000,
+    device: torch.device = torch.device("cpu"),
+) -> dict:
+    """
+    Exact MLL pretraining for gpytorch SVGPLayer.
+
+    Subsamples up to max_train_pts points once, then runs Adam on
+    kernel + noise parameters using the exact marginal log-likelihood.
+    Same robustness logic (rollback, lr halving) as pretrain_gp_kernel.
+    """
+    gp.train()
+    if X_train.size(0) > max_train_pts:
+        idx = torch.randperm(X_train.size(0))[:max_train_pts]
+        X_s, y_s = X_train[idx], y_train[idx]
+    else:
+        X_s, y_s = X_train, y_train
+
+    X_s = X_s.detach().to(device)
+    y_s = y_s.detach().to(device)
+
+    start_ls = float(gp.length_scale().detach().float().view(-1)[0])
+    start_os = float(gp.output_scale().detach().float().view(-1)[0])
+    start_nz = float(gp.noise().detach().float().view(-1)[0])
+
+    cur_lr = float(lr)
+    params = list(gp.svgp.covar_module.parameters()) + list(gp.likelihood.parameters())
+    opt = torch.optim.Adam(params, lr=cur_lr)
+    steps_ok = 0
+
+    for step in range(n_steps):
+        last_good = {k: v.detach().clone() for k, v in gp.state_dict().items()}
+        opt.zero_grad()
+        try:
+            loss = gp.marginal_log_likelihood(X_s, y_s)
+        except RuntimeError as e:
+            print(f"    mll failed at step {step + 1}/{n_steps}: {e}")
+            break
+        if not torch.isfinite(loss):
+            print(f"    non-finite mll at step {step + 1}/{n_steps}; stop pretrain")
+            break
+        loss.backward()
+        grad_norm = torch.nn.utils.clip_grad_norm_(params, max_norm=5.0)
+        if not torch.isfinite(grad_norm):
+            gp.load_state_dict(last_good)
+            cur_lr *= 0.5
+            if cur_lr < 1e-6:
+                break
+            for pg in opt.param_groups:
+                pg["lr"] = cur_lr
+            continue
+        opt.step()
+        if not all(torch.isfinite(p).all() for p in params):
+            gp.load_state_dict(last_good)
+            cur_lr *= 0.5
+            if cur_lr < 1e-6:
+                break
+            for pg in opt.param_groups:
+                pg["lr"] = cur_lr
+            continue
+        steps_ok += 1
+
+    gp.eval()
+    end_ls = float(gp.length_scale().detach().float().view(-1)[0])
+    end_os = float(gp.output_scale().detach().float().view(-1)[0])
+    end_nz = float(gp.noise().detach().float().view(-1)[0])
+    changed = (
+        abs(end_ls - start_ls) > 1e-6
+        or abs(end_os - start_os) > 1e-6
+        or abs(end_nz - start_nz) > 1e-6
+    )
+    return {
+        "steps_ok": steps_ok,
+        "lr_final": cur_lr,
+        "changed": changed,
+        "ls_start": start_ls, "os_start": start_os, "nz_start": start_nz,
+        "ls_end": end_ls,   "os_end": end_os,   "nz_end": end_nz,
+    }
+
+
 def pretrain_svgp_kernel(
     gp,
     X_train: torch.Tensor,
@@ -383,17 +468,18 @@ def main():
             print(f"  horizon {h}: pre-training GP kernel ({args.pretrain_steps} steps, backend={backend}) on {X_all.size(0)} pts ...")
 
             if backend == "gpytorch":
-                pretrain_stats = pretrain_svgp_kernel(
+                pretrain_stats = pretrain_mll_kernel(
                     gp, X_all, y_all,
                     n_steps=args.pretrain_steps,
                     lr=variational_lr,
-                    batch_size=args.max_pretrain_pts,
+                    max_train_pts=args.max_pretrain_pts,
                     device=device,
                 )
                 print(
                     f"    pretrain_effect:"
                     f" steps_ok={pretrain_stats['steps_ok']}"
                     f" changed={pretrain_stats['changed']}"
+                    f" lr_final={pretrain_stats['lr_final']:.2e}"
                 )
             else:
                 pretrain_stats = pretrain_gp_kernel(
