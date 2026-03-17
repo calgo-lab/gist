@@ -1,136 +1,220 @@
-# Groundwater Level Interpolation 
-This project is building a pipeline for spatiotemporal interpolation of groundwater levels
+# GIST: Groundwater Interpolation in Space and Time
 
-Last update: February 26th, 2026
+#### Hybrid Spatiotemporal Modeling for Forecast-Anywhere Groundwater Level Prediction
 
-The first step is recreating the baseline from Kunz et al. (2024), accessible here:
-https://doi.org/10.5194/egusphere-2024-3484
+Two modelling approaches:
+1. **Separate**:
+    Baselines:
+        - TFT temporal forecasting based on Kunz et al. (2024), models from darts
+        - Kriging spatial interpolation, models from sklearn
+    Own implementation:
+        - GRU temporal forecasting
+        - GP spatial interpolation
+2. **Joint**:
+    Temporal GRU + GP spatial layer (from separate), trained/backpropped end-to-end
 
-That first step is forecasting of groundwater levels
+Reference: Kunz et al. (2024): https://doi.org/10.5194/egusphere-2024-3484
 
-## What is done in this repo
-- Temporal forecasting of groundwater levels (TFT)
-- Spatial interpolation of forecasts (kriging) or observed values
-- End-to-end pipeline runner that does both
+Last update: March 15, 2026
+
+---
 
 ## Setup
-### Quickstart
-On local machine:
+
 ```bash
-# macOS / Linux
 python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -U pip setuptools wheel
+source .venv/bin/activate          
+# Windows: .\.venv\Scripts\Activate.ps1
+pip install -U pip setuptools wheel
 pip install -r requirements.txt
 ```
 
-```bash
-# Windows
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -U pip setuptools wheel
-pip install -r requirements.txt
-```
-
-### Requirements
-- Python 3.10+ recommended
-- GPU recommended
+Requirements: Python 3.10+, GPU recommended (A100 for cluster runs)
 
 ### Data
-Configure local dataset file paths in `configs/data.yaml`. `data/head_preview.csv` is a small preview file in this repo.
-Expected columns (minimum):
-- `id`, `datum`, `gws`
-- dynamic covariates: `tas_5km`, `hurs_5km`, `pr_5km`, `tag_sin`, `tag_cos`
-- for spatial steps: `x_25833`, `y_25833`
 
-### Checksums
-Store hashes for locally saved data:
+Configure dataset paths in `configs/data.yaml`. A small preview file is at `data/head_preview.csv`.
+
+Required columns: `id`, `datum`, `gws`, `tas_5km`, `hurs_5km`, `pr_5km`, `tag_sin`, `tag_cos`, `x_25833`, `y_25833`
+
+Verify data integrity against `checksums/data.txt`:
 ```bash
 shasum -a 256 /path/to/main_data.parquet
-shasum -a 256 /path/to/metadata.csv
 ```
-And compare to hashes in `checksums/data.txt` (datasets are identical if hashes are identical)
 
-### Reproduce outputs
-If you want to reproduce derived files in `data/` and `reports/`, run:
+### Data prep
+
 ```bash
 python src/prep/ingest.py
 python src/prep/summary.py
 ```
 
-## Choose your run path
-You have two options:
-1. Temporal forecasting first, then spatial interpolation
-2. Run both at once with `global_run.py`
+---
 
-## Temporal forecasting
-### Training
-Basic training (single run):
+## Separate models (baseline)
+
+### TFT — temporal forecasting
+
 ```bash
+# Train
 python src/scripts/separate/temporal/kunz_darts/tft_train.py
-```
-The training/eval scripts read run parameters from `configs/tft.yaml` (dataset, seed, in/out length, epochs, statics, etc.).
 
-Outputs:
-- `outputs/<MODEL>/<RUN_NAME>/`: model artifacts and checkpoints
-- `splits/spatial_split_<DATASET>.csv`: spatial train/holdout IDs
-
-### Evaluation
-Evaluation generates predictions and metrics:
-```bash
+# Evaluate
 python src/scripts/separate/temporal/kunz_darts/tft_eval.py
-```
 
-Outputs per run:
-- `outputs/TFT/<RUN_NAME>/predictions/pred.parquet`: historical forecasts
-- `outputs/TFT/<RUN_NAME>/metrics.parquet`: evaluation metrics by horizon
-- `outputs/TFT/<RUN_NAME>/skill_by_horizon.parquet`: skill vs persistence by horizon
-
-### Temporal predictions: how they work
-TFT produces historical forecasts over the evaluation period using the date-based split.
-The output `outputs/TFT/<RUN_NAME>/predictions/pred.parquet` contains per-series forecasts with horizons in weeks.
-
-### Sweeps
-To run multi-seed sweeps and log metrics:
-```bash
+# Multi-seed sweeps
 python src/scripts/separate/temporal/kunz_darts/tft_runs.py
 ```
 
-This writes `reports/metrics/metrics.csv` with timing and selected summary values.
+Config: `configs/baselines/tft.yaml`
 
-For multi-seed runs on several GPUs in parallel, run the contents of `cluster/jobs/training`.
+Outputs: `outputs/TFT/<RUN_NAME>/` — predictions, metrics, skill scores
 
-### Metrics summary
-Aggregate run metrics into a summary table:
-```bash
-python src/analysis/build_tft_metrics_summary.py
-```
+### Kriging — spatial interpolation
 
-Outputs:
-- `reports/tft/metrics/tft_metrics_summary.csv`
-- `reports/tft/metrics/tft_metrics_summary_sparse.csv`
-
-## Spatial interpolation (kriging)
-Pick one of these:
-1. Script-only run:
 ```bash
 python src/scripts/separate/spatial/kriging.py
 ```
-2. Notebook run (includes plots/visuals and extra metrics):
-`kriging_predicted_seed40.ipynb`
 
-### Notebook vs script
-The plan is to move plots and visualizations into the script and eventually remove the notebook.
+Config: `configs/baselines/kriging.yaml`
 
-## Global runs
-One command to run the end-to-end pipeline (temporal + spatial):
+Outputs: `outputs/gp/<RUN_TAG>/` — `gp_pred.parquet`, `gp_metrics.parquet`, `gp_grid.npz`
+
+### End-to-end (separate with baselines)
+
 ```bash
-python src/scripts/global_run.py
+python src/scripts/separate/global_run.py
 ```
 
+---
+
+## Joint model (GRU + GP)
+
+### GRU — temporal encoder
+
+```bash
+# Train
+python src/scripts/joint/temporal/gru_train.py
+
+# Evaluate
+python src/scripts/joint/temporal/gru_eval.py
+```
+
+Config: `configs/gru/gru.yaml` — dataset, in/out length, epochs, hidden size, layers, spatial split
+
+Outputs: `outputs/GRU_FCOV/<RUN_NAME>/` — model checkpoints, predictions
+
+### GP — spatial layer (on GRU outputs)
+
+```bash
+python src/scripts/joint/spatial/gp_eval.py
+```
+
+Config: `configs/gp/gp.yaml`
+
+Outputs: `outputs/gp/<RUN_TAG>/` — `gp_pred.parquet`, `gp_metrics.parquet`
+
+### Joint training (GRU + GP end-to-end)
+
+```bash
+# Train
+python src/scripts/joint/gru_gp_train.py
+
+# Evaluate
+python src/scripts/joint/gru_gp_eval.py
+```
+
+Config: `configs/joint/gru_gp.yaml`
+
+Outputs: `outputs/GRU_GP_JOINT/<RUN_NAME>/`
+
+---
+
+## HPO
+
+```bash
+# GRU HPO
+# Submit: cluster/jobs/gw-gru-hpo-a100.yaml
+# Config: configs/gru/hpo_gru.yaml
+
+# GP HPO
+# Submit: cluster/jobs/gw-gp-hpo-a100.yaml
+# Config: configs/gp/hpo_gp.yaml
+```
+
+HPO results land in `reports/gru/hpo/` and `reports/gp/hpo/`.
+
+---
+
+## Spatial splits
+
+Three splits are stored in `splits/`:
+- `spatial_split_full_merged_spf0p8_sc20_ss42.csv` — 80/20 train/holdout (used by separate models and GP)
+- `spatial_split_full_merged_spf0p8_sc20_ss42_90_10.csv` — 90/10 train/holdout (for fair comparison: promotes the joint model's spatial_val into train)
+
+---
+
+## Analysis & reports
+
+All report-building scripts are in `src/analysis/build/`:
+
+```bash
+python src/analysis/build/gru_report.py         # reports/gru/metrics/gru_metrics_summary.csv
+python src/analysis/build/gru_hpo_tables.py     # reports/gru/hpo/ tables
+python src/analysis/build/gp_report.py          # reports/gp/metrics/gp_metrics_summary.csv
+python src/analysis/build/kriging_report.py     # reports/kriging/metrics/kriging_metrics_summary.csv
+python src/analysis/build/joint_report.py       # reports/gru_gp_joint/metrics/ + figures
+python src/analysis/build/tft_report.py         # reports/tft/metrics/tft_metrics_summary.csv
+python src/analysis/build/cross_model_table.py  # reports/cross_model/cross_model_table.csv
+```
+
+Spatial analysis scripts in `src/analysis/spatial/`:
+- `inspect_spatial_split.py` — plots train/holdout split map → `reports/spatial_split/figures/`
+- `evaluate_kriging.py` — kriging surface plots → `reports/kriging/figures/`
+- `outlier_analysis/analyze_outlier_wells.py` — outlier well characterization → `reports/outlier_analysis/kriging/`
+- `outlier_analysis/plot_distance_vs_outliers.py` — distance-to-training analysis → `reports/outlier_analysis/kriging/`
+
+---
+
+## Cluster (Kubernetes)
+
+Jobs are in `cluster/jobs/`. Submit with:
+```bash
+kubectl apply -f cluster/jobs/<job>.yaml
+```
+
+Available jobs:
+- `gw-gru-l2-seed40-ep50-a100.yaml` — single GRU run
+- `gw-gru-hpo-a100.yaml` — GRU HPO
+- `gw-gp-hpo-a100.yaml` — GP HPO
+- `gw-gp-spatial-a100.yaml` — GP on temporal model predictions (set `MODEL_PREFIX` + `TEMPORAL_RUN_SIG`)
+- `gw-gru-gp-gpytorch-seed40-ep50-a100.yaml` — joint GRU+GP run
+
+Docker image: `row56/gw-pred:py312-cu124`. Storage mounted at `/storage` via PVC `gw-pred-rwx`.
+
+---
+
 ## Project layout
-- `configs/*.yaml`: all run configuration
-- `src/scripts/separate/temporal/kunz_darts/*`: TFT train/eval/sweeps
-- `src/scripts/separate/spatial/kriging.py`: spatial interpolation
-- `src/scripts/global_run.py`: end-to-end pipeline runner
-- `outputs/`, `splits/`, `reports/`: generated artifacts
+
+```
+configs/
+  data.yaml                  dataset paths and feature config
+  gru/                       GRU model config and HPO
+  gp/                        GP model config and HPO
+  joint/                     joint GRU+GP config
+  baselines/                 TFT and kriging configs
+src/
+  libs/                      shared utilities (run_sig, spatial_split, utils)
+  prep/                      data ingestion, summary, split preparation
+  scripts/
+    joint/                   GRU+GP joint model (train/eval + sub-models)
+    separate/                TFT + kriging baseline (train/eval + global runner)
+  analysis/
+    build/                   report and metrics summary scripts
+    spatial/                 spatial split inspection and kriging   evaluation
+        outlier_analysis     analysis of outlier wells in kriging/gp predictive performance
+splits/                      spatial split CSVs
+outputs/                     model outputs (gitignored)
+reports/                     metrics CSVs, HPO results, figures
+cluster/                     Kubernetes job YAMLs and Docker configs
+```
