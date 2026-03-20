@@ -12,19 +12,6 @@ spec:
       labels:
         app: gw-pred
     spec:
-      nodeSelector:
-        gpu: a100
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-            - matchExpressions:
-              - key: gpu
-                operator: In
-                values: ["a100"]
-              - key: nvidia.com/gpu.memory
-                operator: In
-                values: ["40960"]
       containers:
       - name: gw-pred
         image: row56/gw-pred:py312-cu124
@@ -32,17 +19,6 @@ spec:
         securityContext:
           runAsUser: 0
         env:
-        - name: WANDB_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: wandb-api
-              key: api-key
-        - name: WANDB_PROJECT
-          value: "gw-pred"
-        - name: WANDB_ENTITY
-          value: "gw-pred"
-        - name: WANDB_DIR
-          value: "/storage/wandb"
         - name: PYTHONUNBUFFERED
           value: "1"
         - name: VSCODE_AGENT_FOLDER
@@ -69,13 +45,11 @@ spec:
         - containerPort: 22
         resources:
           requests:
-            cpu: "16"
-            memory: 100Gi
-            nvidia.com/gpu: 1
+            cpu: "4"
+            memory: 16Gi
           limits:
-            cpu: "16"
-            memory: 100Gi
-            nvidia.com/gpu: 1
+            cpu: "4"
+            memory: 16Gi
         volumeMounts:
         - name: gw-pred-rwx
           mountPath: /storage
