@@ -76,7 +76,7 @@ def main():
     if (not run_sig) or run_sig.lower() == "auto":
         run_sig = resolve_tft_run_sig(tft_cfg, model=str(model))
     if not run_sig:
-        raise ValueError("run_sig must be set in configs/tft.yaml or configs/kriging.yaml")
+        raise ValueError("run_sig must be set in configs/baselines/tft.yaml or configs/baselines/kriging.yaml")
 
     horizon_default = float(cfg.get("horizon", tft_cfg.get("data", {}).get("out_len", 16)))
     target_date_default = str(cfg.get("kriging_date", "")).strip()
@@ -94,7 +94,7 @@ def main():
     split_tag = str(args.spatial_split_tag or cfg.get("spatial_split_tag", "")).strip()
     kriging_source = str(args.kriging_source or cfg.get("kriging_source", "pred")).strip().lower()
     if kriging_source not in {"pred", "true"}:
-        raise ValueError("kriging_source must be 'pred' or 'true' in configs/kriging.yaml")
+        raise ValueError("kriging_source must be 'pred' or 'true' in configs/baselines/kriging.yaml")
 
     value_tag = "predobstrain" if kriging_source == "pred" else "trueobstrain"
     name_parts = [run_sig, split_tag, value_tag]
@@ -296,8 +296,6 @@ def main():
     real_all = out_df["gws_true"].to_numpy()
     abs_err_all = np.abs(pred_all - real_all)
 
-    # Per-id NSE over time (across evaluated dates/horizons for each holdout well).
-    # This complements pooled NSE, which can look optimistic when between-well variance is large.
     per_id_nse_rows = []
     for well_id, g in out_df.groupby("id"):
         real_id = g["gws_true"].to_numpy()
