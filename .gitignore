@@ -13,3 +13,6 @@ wandb/
 experiments/
 
 src/scripts/joint/spatial/custom_gp/
+
+logs/
+**/logs/
