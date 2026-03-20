@@ -1,9 +1,9 @@
 import math
 from pathlib import Path
-from typing import Iterable, Tuple
 
 import numpy as np
 import pandas as pd
+from scipy.spatial import cKDTree
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 
@@ -98,6 +98,44 @@ def spatial_train_subset(gws_bb, static_regex,train_fraction, n_clusters, rng_se
 
     filtered = gws_bb[gws_bb['id'].isin(train_ids_set)].copy()
     return filtered, info
+
+
+def spatial_split_random_max_dist(coords_df, train_fraction=0.9, k=3, d_percentile=25, rng_seed=42, save_path=None):
+    coords = coords_df[["id", "x_25833", "y_25833"]].drop_duplicates("id").dropna(
+        subset=["x_25833", "y_25833"]
+    ).reset_index(drop=True)
+
+    XY = coords[["x_25833", "y_25833"]].to_numpy()
+    tree = cKDTree(XY)
+    dists, _ = tree.query(XY, k=k + 1)  # +1 to include self
+    mean_dist_k = dists[:, 1:].mean(axis=1)  # exclude self
+
+    d_threshold = np.percentile(mean_dist_k, d_percentile)
+    eligible_ids = coords.loc[mean_dist_k <= d_threshold, "id"].to_numpy()
+
+    n_total = len(coords)
+    n_holdout = int(round(n_total * (1.0 - train_fraction)))
+
+    if len(eligible_ids) < n_holdout:
+        raise ValueError(
+            f"Not enough eligible wells ({len(eligible_ids)}) for holdout target "
+            f"({n_holdout}). Increase d_percentile."
+        )
+
+    rng = np.random.default_rng(rng_seed)
+    holdout_ids = set(rng.choice(eligible_ids, size=n_holdout, replace=False).tolist())
+
+    result = coords[["id"]].copy()
+    result["cluster"] = 0
+    result["spatial_split"] = np.where(
+        result["id"].isin(holdout_ids), "spatial_holdout", "spatial_train"
+    )
+
+    if save_path:
+        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+        result.to_csv(save_path, index=False)
+
+    return result
 
 
 def load_or_create_split(gws_bb, static_regex, train_fraction, n_clusters, rng_seed, exclude_terms, save_path):
