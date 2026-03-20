@@ -22,7 +22,7 @@ import yaml
 from sklearn.preprocessing import StandardScaler
 
 from libs.spatial_split import resolve_split_path
-from gp_layer import GPLayer, make_gp_layer
+from gp_layer import make_gp_layer
 
 
 def _load_yaml(path):
@@ -36,8 +36,7 @@ def _load_yaml(path):
 def _as_bool(v):
     if isinstance(v, bool):
         return v
-    s = str(v).strip().lower()
-    return s in {"1", "true", "yes", "y", "on"}
+    return str(v).strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 def _nse(pred, real):
@@ -58,204 +57,107 @@ def _nrmse(pred, real):
     return _rmse(pred, real) / iqr
 
 
-def pretrain_gp_kernel(
-    gp,
-    X_train,
-    y_train,
-    n_steps=200,
-    lr=1e-2,
-    max_train_pts=2000,
-    device=torch.device("cpu"),
-):
-    def _params_finite(module):
-        for p in module.parameters():
-            if not torch.isfinite(p).all():
-                return False
-        return True
-
+def pretrain_mll_kernel(gp, X_train, y_train, n_steps=200, lr=1e-2, max_train_pts=2000, device=torch.device("cpu")):
     gp.train()
     if X_train.size(0) > max_train_pts:
-        idx = torch.randperm(X_train.size(0), device=X_train.device)[:max_train_pts]
+        idx = torch.randperm(X_train.size(0))[:max_train_pts]
         X_s, y_s = X_train[idx], y_train[idx]
     else:
         X_s, y_s = X_train, y_train
 
-    # Run MLL pretraining on CPU float64 for numerical stability.
-    X_s = X_s.detach().to(device=torch.device("cpu"), dtype=torch.float64)
-    y_s = y_s.detach().to(device=torch.device("cpu"), dtype=torch.float64)
-    gp_pre = GPLayer(
-        n_spatial_dims=gp.n_spatial_dims,
-        kernel_type=gp.kernel_type,
-        isotropic=gp.isotropic,
-        jitter=gp.jitter,
-        mll_diag_eps=getattr(gp, "mll_diag_eps", 1e-4),
-    )
-    gp_pre.load_state_dict(gp.state_dict())
-    gp_pre = gp_pre.to(device=torch.device("cpu"), dtype=torch.float64)
+    X_s = X_s.detach().to(device)
+    y_s = y_s.detach().to(device)
 
-    start_ls = float(gp.length_scale().detach().float().view(-1)[0].item())
-    start_os = float(gp.output_scale().detach().float().view(-1)[0].item())
-    start_nz = float(gp.noise().detach().float().view(-1)[0].item())
+    start_ls = float(gp.length_scale().detach().float().view(-1)[0])
+    start_os = float(gp.output_scale().detach().float().view(-1)[0])
+    start_nz = float(gp.noise().detach().float().view(-1)[0])
+
     cur_lr = float(lr)
-    opt = torch.optim.Adam(gp_pre.parameters(), lr=cur_lr)
+    params = list(gp.svgp.covar_module.parameters()) + list(gp.likelihood.parameters())
+    opt = torch.optim.Adam(params, lr=cur_lr)
     steps_ok = 0
 
     for step in range(n_steps):
-        last_good = {k: v.detach().clone() for k, v in gp_pre.state_dict().items()}
+        last_good = {k: v.detach().clone() for k, v in gp.state_dict().items()}
         opt.zero_grad()
         try:
-            loss = gp_pre.marginal_log_likelihood(X_s, y_s)
+            loss = gp.marginal_log_likelihood(X_s, y_s)
         except RuntimeError as e:
             print(f"    mll failed at step {step + 1}/{n_steps}: {e}")
-            print("    continue without more pretrain steps for this horizon")
             break
         if not torch.isfinite(loss):
-            print(f"    non-finite mll at step {step + 1}/{n_steps}; stop pretrain for this horizon")
+            print(f"    non-finite mll at step {step + 1}/{n_steps}; stop pretrain")
             break
         loss.backward()
-        grad_norm = torch.nn.utils.clip_grad_norm_(gp_pre.parameters(), max_norm=5.0)
+        grad_norm = torch.nn.utils.clip_grad_norm_(params, max_norm=5.0)
         if not torch.isfinite(grad_norm):
-            gp_pre.load_state_dict(last_good)
+            gp.load_state_dict(last_good)
             cur_lr *= 0.5
             if cur_lr < 1e-6:
-                print("    grad norm non-finite and lr too small; stop pretrain for this horizon")
                 break
             for pg in opt.param_groups:
                 pg["lr"] = cur_lr
-            print(f"    non-finite grad norm; rollback step and reduce lr to {cur_lr:.2e}")
             continue
         opt.step()
-        if not _params_finite(gp_pre):
-            gp_pre.load_state_dict(last_good)
+        if not all(torch.isfinite(p).all() for p in params):
+            gp.load_state_dict(last_good)
             cur_lr *= 0.5
             if cur_lr < 1e-6:
-                print(f"    non-finite params after step {step + 1}/{n_steps}; restore and stop pretrain")
                 break
             for pg in opt.param_groups:
                 pg["lr"] = cur_lr
-            print(f"    non-finite params after step {step + 1}/{n_steps}; rollback and reduce lr to {cur_lr:.2e}")
             continue
         steps_ok += 1
 
-    # Copy trained parameters back to runtime GP module.
-    if _params_finite(gp_pre):
-        gp.load_state_dict(gp_pre.state_dict())
-
     gp.eval()
-    end_ls = float(gp.length_scale().detach().float().view(-1)[0].item())
-    end_os = float(gp.output_scale().detach().float().view(-1)[0].item())
-    end_nz = float(gp.noise().detach().float().view(-1)[0].item())
+    end_ls = float(gp.length_scale().detach().float().view(-1)[0])
+    end_os = float(gp.output_scale().detach().float().view(-1)[0])
+    end_nz = float(gp.noise().detach().float().view(-1)[0])
     changed = (
         abs(end_ls - start_ls) > 1e-6
         or abs(end_os - start_os) > 1e-6
         or abs(end_nz - start_nz) > 1e-6
     )
     return {
-        "steps_ok": steps_ok,
-        "lr_final": cur_lr,
-        "changed": changed,
-        "ls_start": start_ls,
-        "os_start": start_os,
-        "nz_start": start_nz,
-        "ls_end": end_ls,
-        "os_end": end_os,
-        "nz_end": end_nz,
-    }
-
-
-def pretrain_svgp_kernel(
-    gp,
-    X_train: torch.Tensor,
-    y_train: torch.Tensor,
-    n_steps: int = 200,
-    lr: float = 1e-2,
-    batch_size: int = 512,
-    device: torch.device = torch.device("cpu"),
-) -> dict:
-    """
-    Optimise SVGPLayer kernel hyperparameters via variational ELBO.
-
-    Works with gpytorch backend (SVGPLayer).  Mini-batches of size
-    ``batch_size`` are drawn at each step so this scales to large datasets.
-
-    Returns a summary dict with start/end hyperparameter values.
-    """
-    gp.train()
-    if hasattr(gp, "likelihood"):
-        gp.likelihood.train()
-
-    X_s = X_train.detach().to(device)
-    y_s = y_train.detach().to(device)
-    n_data = X_s.size(0)
-
-    # Initialise inducing points from a random subset of the training data.
-    if hasattr(gp, "initialize_inducing"):
-        gp.initialize_inducing(X_s)
-
-    opt = torch.optim.Adam(gp.parameters(), lr=lr)
-
-    start_ls = float(gp.length_scale().detach().float().view(-1)[0].item()) if hasattr(gp, "length_scale") else float("nan")
-    start_os = float(gp.output_scale().detach().float().view(-1)[0].item()) if hasattr(gp, "output_scale") else float("nan")
-    start_nz = float(gp.noise().detach().float().view(-1)[0].item()) if hasattr(gp, "noise") else float("nan")
-
-    steps_ok = 0
-    for step in range(n_steps):
-        idx = torch.randperm(n_data, device=device)[:min(batch_size, n_data)]
-        xb = X_s[idx]
-        yb = y_s[idx]
-
-        opt.zero_grad()
-        try:
-            loss = gp.elbo_loss(xb, yb, n_data)
-        except RuntimeError as e:
-            print(f"    elbo_loss failed at step {step + 1}/{n_steps}: {e}")
-            break
-        if not torch.isfinite(loss):
-            print(f"    non-finite ELBO at step {step + 1}/{n_steps}; stopping pretrain")
-            break
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(gp.parameters(), max_norm=5.0)
-        opt.step()
-        steps_ok += 1
-
-    gp.eval()
-    if hasattr(gp, "likelihood"):
-        gp.likelihood.eval()
-
-    end_ls = float(gp.length_scale().detach().float().view(-1)[0].item()) if hasattr(gp, "length_scale") else float("nan")
-    end_os = float(gp.output_scale().detach().float().view(-1)[0].item()) if hasattr(gp, "output_scale") else float("nan")
-    end_nz = float(gp.noise().detach().float().view(-1)[0].item()) if hasattr(gp, "noise") else float("nan")
-    changed = (
-        abs(end_ls - start_ls) > 1e-6
-        or abs(end_os - start_os) > 1e-6
-        or abs(end_nz - start_nz) > 1e-6
-    )
-    return {
-        "steps_ok": steps_ok,
-        "changed": changed,
+        "steps_ok": steps_ok, "lr_final": cur_lr, "changed": changed,
         "ls_start": start_ls, "os_start": start_os, "nz_start": start_nz,
-        "ls_end": end_ls,   "os_end": end_os,   "nz_end": end_nz,
+        "ls_end": end_ls, "os_end": end_os, "nz_end": end_nz,
     }
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Standalone differentiable GP on GRU predictions.")
-    parser.add_argument("--gru-run-sig", default=None, help="GRU run signature.")
-    parser.add_argument("--model-prefix", default="GRU_FCOV", help="Temporal model folder/prefix, e.g. GRU_FCOV or TFT.")
-    parser.add_argument("--gp-run-tag", default="gp_pytorch", help="Tag appended to output dir name.")
-    parser.add_argument("--pred-path", default=None, help="Optional explicit pred.parquet path.")
-    parser.add_argument("--pretrain-steps", type=int, default=200, help="Optimisation steps per horizon.")
-    parser.add_argument("--pretrain-lr", type=float, default=1e-2)
-    parser.add_argument("--max-pretrain-pts", type=int, default=2000, help="Max train pts for MLL / ELBO batch.")
-    parser.add_argument("--date-freq", default="ME", help="Pandas resample freq for date selection (ME=monthly).")
-    parser.add_argument("--jitter", type=float, default=1e-5)
-    parser.add_argument("--kernel-type", default="matern32", help="matern32 or rbf (custom backend only)")
-    parser.add_argument("--isotropic", default="true", help="true/false (custom backend only)")
-    # New gpytorch backend args
-    parser.add_argument("--backend", default="custom", help="GP backend: 'custom' or 'gpytorch'")
-    parser.add_argument("--n-inducing", type=int, default=64, help="Inducing point count (gpytorch backend)")
-    parser.add_argument("--variational-lr", type=float, default=1e-2, help="SVGP ELBO learning rate (gpytorch)")
-    parser.add_argument("--use-float64", default="true", help="Use float64 in GP kernel (gpytorch backend)")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", default="configs/gp/gp.yaml")
+    parser.add_argument("--gru-run-sig", default=None)
+    parser.add_argument("--model-prefix", default=None)
+    parser.add_argument("--gp-run-tag", default=None)
+    parser.add_argument("--pred-path", default=None)
+    parser.add_argument("--pretrain-steps", type=int, default=None)
+    parser.add_argument("--pretrain-lr", type=float, default=None)
+    parser.add_argument("--max-pretrain-pts", type=int, default=None)
+    parser.add_argument("--date-freq", default=None)
+    parser.add_argument("--jitter", type=float, default=None)
+    parser.add_argument("--backend", default=None)
+    parser.add_argument("--n-inducing", type=int, default=None)
+    parser.add_argument("--variational-lr", type=float, default=None)
+    parser.add_argument("--use-float64", default=None)
+
+    config_args, _ = parser.parse_known_args()
+    gp_cfg = _load_yaml(ROOT / config_args.config)
+    parser.set_defaults(
+        model_prefix     = str(gp_cfg.get("model",            "GRU_FCOV")),
+        gru_run_sig      = gp_cfg.get("gru_run_sig",          None) or None,
+        gp_run_tag       = str(gp_cfg.get("gp_run_tag",       "gp_pytorch")),
+        pretrain_steps   = int(gp_cfg.get("pretrain_steps",   200)),
+        pretrain_lr      = float(gp_cfg.get("pretrain_lr",    1e-2)),
+        max_pretrain_pts = int(gp_cfg.get("max_pretrain_pts", 2000)),
+        date_freq        = str(gp_cfg.get("date_freq",        "ME")),
+        jitter           = float(gp_cfg.get("jitter",         1e-5)),
+        backend          = str(gp_cfg.get("backend",          "gpytorch")),
+        n_inducing       = int(gp_cfg.get("n_inducing",       64)),
+        variational_lr   = float(gp_cfg.get("variational_lr", 1e-2)),
+        use_float64      = str(gp_cfg.get("use_float64",      True)).lower(),
+    )
     args = parser.parse_args()
 
     gru_cfg = _load_yaml(ROOT / "configs" / "gru.yaml")
@@ -286,15 +188,12 @@ def main():
             epochs  = int(tr.get("epochs", 50))
             bs      = int(tr.get("batch_size", 4096))
             seed    = int(tr.get("seed", 40))
-            revin_tag = "r1" if bool(mc.get("use_revin", False)) else "r0"
             spf     = str(float(sc.get("train_fraction", 0.8))).replace(".", "p")
             sc_cnt  = int(sc.get("cluster_count", 20))
             ss      = int(sc.get("split_seed", 42))
-            gru_run_sig = f"in{in_len}_out{out_len}_ep{epochs}_bs{bs}_seed{seed}_{dataset}_{revin_tag}_spf{spf}_sc{sc_cnt}_ss{ss}"
+            gru_run_sig = f"in{in_len}_out{out_len}_ep{epochs}_bs{bs}_seed{seed}_{dataset}_spf{spf}_sc{sc_cnt}_ss{ss}"
 
     model_prefix = str(args.model_prefix).strip()
-    kernel_type  = str(args.kernel_type).strip().lower()
-    isotropic    = _as_bool(args.isotropic)
     backend      = str(args.backend).strip().lower()
     n_inducing   = int(args.n_inducing)
     variational_lr = float(args.variational_lr)
@@ -345,7 +244,6 @@ def main():
     print(f"Device: {device}")
     print(f"Model prefix: {model_prefix}")
     print(f"Run sig: {gru_run_sig}")
-    print(f"Kernel: {kernel_type} | isotropic={isotropic}")
     print(f"Dates ({len(dates)}): {[str(d.date()) for d in dates[:4]]} ...")
     print(f"Horizons: {horizons}")
 
@@ -361,15 +259,9 @@ def main():
         pred_h = pred[pred["horizon"] == h]
         train_pred_h = pred_h[pred_h["id"].isin(train_ids)].dropna(subset=["x_25833", "y_25833", "gws_pred"])
 
-        # Build the GP model for this horizon (fresh each horizon)
         gp = make_gp_layer(
-            backend=backend,
-            n_spatial_dims=2,
-            kernel_type=kernel_type,
-            isotropic=isotropic,
-            jitter=args.jitter,
-            n_inducing=n_inducing,
-            use_float64=use_float64,
+            backend=backend, n_spatial_dims=2,
+            jitter=args.jitter, n_inducing=n_inducing, use_float64=use_float64,
         ).to(device)
 
         if train_pred_h.empty:
@@ -382,30 +274,16 @@ def main():
             y_all = torch.tensor(train_pred_h["gws_pred"].to_numpy(), dtype=torch.float32, device=device)
             print(f"  horizon {h}: pre-training GP kernel ({args.pretrain_steps} steps, backend={backend}) on {X_all.size(0)} pts ...")
 
-            if backend == "gpytorch":
-                pretrain_stats = pretrain_svgp_kernel(
-                    gp, X_all, y_all,
-                    n_steps=args.pretrain_steps,
-                    lr=variational_lr,
-                    batch_size=args.max_pretrain_pts,
-                    device=device,
-                )
-                print(
-                    f"    pretrain_effect:"
-                    f" steps_ok={pretrain_stats['steps_ok']}"
-                    f" changed={pretrain_stats['changed']}"
-                )
-            else:
-                pretrain_stats = pretrain_gp_kernel(
-                    gp, X_all, y_all, n_steps=args.pretrain_steps, lr=args.pretrain_lr,
-                    max_train_pts=args.max_pretrain_pts, device=device
-                )
-                print(
-                    f"    pretrain_effect:"
-                    f" steps_ok={pretrain_stats['steps_ok']}"
-                    f" changed={pretrain_stats['changed']}"
-                    f" lr_final={pretrain_stats['lr_final']:.2e}"
-                )
+            pretrain_stats = pretrain_mll_kernel(
+                gp, X_all, y_all, n_steps=args.pretrain_steps,
+                lr=variational_lr, max_train_pts=args.max_pretrain_pts, device=device,
+            )
+            print(
+                f"    pretrain_effect:"
+                f" steps_ok={pretrain_stats['steps_ok']}"
+                f" changed={pretrain_stats['changed']}"
+                f" lr_final={pretrain_stats['lr_final']:.2e}"
+            )
 
             ls  = float(gp.length_scale().detach().float().view(-1)[0].item())
             os_ = float(gp.output_scale().detach().float().view(-1)[0].item())
@@ -413,13 +291,8 @@ def main():
             if not np.isfinite(ls) or not np.isfinite(os_) or not np.isfinite(nz):
                 print("    non-finite GP hyperparams after pretrain; re-init GP without pretrain for this horizon")
                 gp = make_gp_layer(
-                    backend=backend,
-                    n_spatial_dims=2,
-                    kernel_type=kernel_type,
-                    isotropic=isotropic,
-                    jitter=args.jitter,
-                    n_inducing=n_inducing,
-                    use_float64=use_float64,
+                    backend=backend, n_spatial_dims=2,
+                    jitter=args.jitter, n_inducing=n_inducing, use_float64=use_float64,
                 ).to(device)
                 ls  = float(gp.length_scale().detach().float().view(-1)[0].item())
                 os_ = float(gp.output_scale().detach().float().view(-1)[0].item())
@@ -450,14 +323,11 @@ def main():
             with torch.no_grad():
                 y_pred_t, y_std_t = gp.forward_with_std(X_train_t, y_train_t, X_test_t)
 
-            y_pred_np = y_pred_t.cpu().numpy()
-            y_std_np  = y_std_t.cpu().numpy()
-
             out = holdout_true.copy().reset_index(drop=True)
             out["gws_true"]         = out["gws"]
             out.drop(columns=["gws"], inplace=True)
-            out["gws_forecast"]     = y_pred_np
-            out["gws_forecast_std"] = y_std_np
+            out["gws_forecast"]     = y_pred_t.cpu().numpy()
+            out["gws_forecast_std"] = y_std_t.cpu().numpy()
             out["horizon"]          = h
             out["datum"]            = dt
             out_rows.append(out)
@@ -483,20 +353,20 @@ def main():
     per_id_valid = per_id_valid[np.isfinite(per_id_valid)]
 
     overall_metrics = {
-        "RMSE":         _rmse(pred_all, real_all),
-        "nRMSE":        _nrmse(pred_all, real_all),
-        "NSE_pooled":   _nse(pred_all, real_all),
-        "NSE":          _nse(pred_all, real_all),
-        "NSE_id_median":float(np.median(per_id_valid)) if per_id_valid.size else float("nan"),
-        "NSE_id_p25":   float(np.percentile(per_id_valid, 25)) if per_id_valid.size else float("nan"),
-        "NSE_id_p50":   float(np.percentile(per_id_valid, 50)) if per_id_valid.size else float("nan"),
-        "NSE_id_p75":   float(np.percentile(per_id_valid, 75)) if per_id_valid.size else float("nan"),
-        "NSE_id_mean":  float(np.mean(per_id_valid)) if per_id_valid.size else float("nan"),
-        "NSE_id_count": float(per_id_valid.size),
-        "MAE":          float(np.mean(abs_err)),
-        "AbsErr_P95":   float(np.percentile(abs_err, 95)) if abs_err.size else float("nan"),
-        "AbsErr_P99":   float(np.percentile(abs_err, 99)) if abs_err.size else float("nan"),
-        "AbsErr_Max":   float(np.max(abs_err)) if abs_err.size else float("nan"),
+        "RMSE":          _rmse(pred_all, real_all),
+        "nRMSE":         _nrmse(pred_all, real_all),
+        "NSE_pooled":    _nse(pred_all, real_all),
+        "NSE":           _nse(pred_all, real_all),
+        "NSE_id_median": float(np.median(per_id_valid)) if per_id_valid.size else float("nan"),
+        "NSE_id_p25":    float(np.percentile(per_id_valid, 25)) if per_id_valid.size else float("nan"),
+        "NSE_id_p50":    float(np.percentile(per_id_valid, 50)) if per_id_valid.size else float("nan"),
+        "NSE_id_p75":    float(np.percentile(per_id_valid, 75)) if per_id_valid.size else float("nan"),
+        "NSE_id_mean":   float(np.mean(per_id_valid)) if per_id_valid.size else float("nan"),
+        "NSE_id_count":  float(per_id_valid.size),
+        "MAE":           float(np.mean(abs_err)),
+        "AbsErr_P95":    float(np.percentile(abs_err, 95)) if abs_err.size else float("nan"),
+        "AbsErr_P99":    float(np.percentile(abs_err, 99)) if abs_err.size else float("nan"),
+        "AbsErr_Max":    float(np.max(abs_err)) if abs_err.size else float("nan"),
     }
 
     pair_rows = []
@@ -519,8 +389,7 @@ def main():
     gp_dir.mkdir(parents=True, exist_ok=True)
 
     pq.write_table(pa.Table.from_pandas(out_df), gp_dir / "gp_pred.parquet")
-    metrics_ser = pd.Series(overall_metrics)
-    metrics_df  = metrics_ser.reset_index()
+    metrics_df = pd.Series(overall_metrics).reset_index()
     metrics_df.columns = ["metric", "value"]
     pq.write_table(pa.Table.from_pandas(metrics_df), gp_dir / "gp_metrics.parquet")
     per_pair_metrics.to_csv(gp_dir / "gp_metrics_by_pair.csv", index=False)
