@@ -27,7 +27,6 @@ ENV PATH="/opt/venv/bin:${PATH}" \
     WANDB_DIR=/storage/projects/.wandb \
     WANDB_CACHE_DIR=/storage/projects/.wandb/cache
 
-# SSH setup (expects your existing scripts/configs)
 RUN mkdir -p /var/run/sshd /root/.ssh && chmod 700 /root/.ssh && touch /root/.ssh/authorized_keys
 COPY bin/* /usr/local/bin/
 COPY sshd_config /etc/ssh/sshd_config

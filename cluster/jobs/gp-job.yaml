@@ -1,16 +1,16 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: gw-gp-hpo-a100
+  name: gw-gp-spatial-a100
   labels:
-    app: gw-gp-hpo
+    app: gw-gp-spatial
 spec:
   backoffLimit: 0
   ttlSecondsAfterFinished: 86400
   template:
     metadata:
       labels:
-        app: gw-gp-hpo
+        app: gw-gp-spatial
     spec:
       restartPolicy: Never
       nodeSelector:
@@ -33,7 +33,7 @@ spec:
           medium: Memory
           sizeLimit: "8Gi"
       containers:
-      - name: gp-hpo
+      - name: gp-spatial
         image: row56/gw-pred:py312-cu124
         imagePullPolicy: Always
         resources:
@@ -47,8 +47,6 @@ spec:
         env:
         - name: PYTHONUNBUFFERED
           value: "1"
-        - name: HPO_CONFIG
-          value: "configs/gp/hpo_gp.yaml"
         volumeMounts:
         - name: gw-pred-rwx
           mountPath: /storage
@@ -59,12 +57,10 @@ spec:
         - |
           set -euo pipefail
           source /storage/venv/bin/activate
-          # Ensure gpytorch is available and mpmath version is compatible
-          pip install --quiet gpytorch "mpmath>=1.1.0,<1.4" || true
           cd /storage/gwl-interpolation
 
-          mkdir -p reports/gp/hpo/logs
+          mkdir -p reports/gp/logs
           {
-            echo "=== GP HPO ==="
-            time python src/scripts/joint/spatial/gp_runs.py --hpo-config "${HPO_CONFIG}"
-          } 2>&1 | tee "reports/gp/hpo/logs/gp_hpo.log"
+            echo "=== GP EVAL ==="
+            time python src/scripts/joint/spatial/gp_eval.py --config configs/gp/gp.yaml
+          } 2>&1 | tee "reports/gp/logs/gp_eval.log"

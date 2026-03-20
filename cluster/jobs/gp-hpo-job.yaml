@@ -1,0 +1,68 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gw-gp-hpo-a100
+  labels:
+    app: gw-gp-hpo
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: gw-gp-hpo
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        gpu: a100
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - cl-worker24
+      volumes:
+      - name: gw-pred-rwx
+        persistentVolumeClaim:
+          claimName: gw-pred-rwx
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: "8Gi"
+      containers:
+      - name: gp-hpo
+        image: row56/gw-pred:py312-cu124
+        imagePullPolicy: Always
+        resources:
+          requests:
+            cpu: "8"
+            memory: 32Gi
+            nvidia.com/gpu: 1
+          limits:
+            memory: 32Gi
+            nvidia.com/gpu: 1
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        - name: HPO_CONFIG
+          value: "configs/gp/hpo_gp.yaml"
+        volumeMounts:
+        - name: gw-pred-rwx
+          mountPath: /storage
+        - name: dshm
+          mountPath: /dev/shm
+        command: ["bash", "-lc"]
+        args:
+        - |
+          set -euo pipefail
+          source /storage/venv/bin/activate
+          cd /storage/gwl-interpolation
+
+          mkdir -p reports/gp/hpo/logs
+          {
+            echo "=== GP HPO ==="
+            time python src/scripts/joint/spatial/gp_runs.py --hpo-config "${HPO_CONFIG}"
+          } 2>&1 | tee "reports/gp/hpo/logs/gp_hpo.log"

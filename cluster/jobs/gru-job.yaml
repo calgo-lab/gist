@@ -1,0 +1,68 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gw-gru-l2-revin-seed40-ep50-a100
+  labels:
+    app: gw-gru-time
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: gw-gru-time
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        gpu: a100
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - cl-worker24
+      volumes:
+      - name: gw-pred-rwx
+        persistentVolumeClaim:
+          claimName: gw-pred-rwx
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: "16Gi"
+      containers:
+      - name: gru-time
+        image: row56/gw-pred:py312-cu124
+        imagePullPolicy: Always
+        resources:
+          requests:
+            cpu: "16"
+            memory: 64Gi
+            nvidia.com/gpu: 1
+          limits:
+            memory: 64Gi
+            nvidia.com/gpu: 1
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        volumeMounts:
+        - name: gw-pred-rwx
+          mountPath: /storage
+        - name: dshm
+          mountPath: /dev/shm
+        command: ["bash", "-lc"]
+        args:
+        - |
+          set -euo pipefail
+          source /storage/venv/bin/activate
+          cd /storage/gwl-interpolation
+
+          mkdir -p reports/gru/logs
+          {
+            echo "=== TRAIN gru_l2_ep50 ==="
+            time python src/scripts/joint/temporal/gru_train.py --config configs/gru/gru.yaml
+            echo "=== EVAL gru_l2_ep50 ==="
+            time python src/scripts/joint/temporal/gru_eval.py --config configs/gru/gru.yaml
+          } 2>&1 | tee "reports/gru/logs/gru_l2_ep50.log"
