@@ -1,15 +1,11 @@
 dataset: full_merged
-
 model:
   dropout: 0.2
-
 run_sig: auto
-
 data:
   in_len: 52
   out_len: 16
   statics: true
-
 training:
   epochs: 50
   batch_size: 4096
@@ -22,19 +18,16 @@ training:
     patience: 5
     min_delta: 1e-4
     mode: min
-
 spatial_split:
-  file: "splits/spatial_split_full_merged_spf0p8_sc20_ss42.csv"
+  file: splits/spatial_split_full_merged_spf0p8_sc20_ss42.csv
   train_fraction: 0.8
   cluster_count: 20
   split_seed: 42
   exclude_terms: geometry,x_25833,y_25833
-
 eval:
   stride: 1
   retrain: false
   force_reeval: false
-
 runs:
   in_lens:
   - 52
@@ -47,8 +40,3 @@ runs:
   batch_size: 4096
   seeds:
   - 40
-
-wandb:
-  project: gw-pred
-  entity: gw-pred
-  enabled: true

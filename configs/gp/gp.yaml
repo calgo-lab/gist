@@ -1,18 +1,25 @@
 dataset: full_merged
 model: GRU_FCOV
-run_sig: auto
 gru_run_sig: "gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42"
-horizon: 16
+gp_run_tag: "gp_pytorch_matern32"
+run_sig: auto
 seed: 40
 spatial_split_tag: ""
 spatial_split_file: ""
 max_pairs: 0
 
-date_strategy: "biweekly"
-# date_strategy: "monthly"
-# kriging_dates:
-#   - "2024-01-01"
-#   - "2024-01-15"
+date_freq: "ME"
+pretrain_steps: 300
+pretrain_lr: 0.01
+max_pretrain_pts: 2000
+
+backend: "custom"
+kernel_type: "matern32"
+isotropic: true
+jitter: 0.00001
+n_inducing: 64
+variational_lr: 0.01
+use_float64: true
 
 kernel:
   nu: 1.5
