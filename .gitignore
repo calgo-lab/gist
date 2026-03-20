@@ -11,3 +11,5 @@ __pycache__/
 outputs/
 wandb/
 experiments/
+
+src/scripts/joint/spatial/custom_gp/
