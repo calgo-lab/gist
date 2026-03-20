@@ -171,7 +171,7 @@ def main():
 
     cfg_src = gru_cfg if gru_cfg else tft_cfg
     dataset = str(cfg_src.get("dataset", "full_merged"))
-    spatial_cfg = cfg_src.get("spatial_split", {})
+    spatial_cfg = gp_cfg.get("spatial_split", cfg_src.get("spatial_split", {}))
 
     gru_run_sig = args.gru_run_sig
     if not gru_run_sig:
