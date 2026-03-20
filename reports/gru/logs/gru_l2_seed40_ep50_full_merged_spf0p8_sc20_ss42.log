@@ -1,4 +1,0 @@
-=== TRAIN gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42 ===
-epoch=1 train_loss=0.304283 val_loss=0.227197 time=46.9s
-epoch=2 train_loss=0.207206 val_loss=0.175770 time=37.3s
-epoch=3 train_loss=0.159178 val_loss=0.140473 time=37.3s

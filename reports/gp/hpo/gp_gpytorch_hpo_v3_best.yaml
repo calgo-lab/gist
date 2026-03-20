@@ -1,0 +1,18 @@
+best_objective: 0.20925910324382352
+best_trial:
+  trial: 9
+  gru_run_sig: gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42
+  gp_run_tag: gp_gpytorch_hpo_v3_t009
+  status: ok
+  objective: 0.20925910324382352
+  elapsed_s: 36.949
+  error: ''
+  hp.backend: gpytorch
+  hp.isotropic: true
+  hp.jitter: 0.0001
+  hp.kernel_type: matern32
+  hp.max_pretrain_pts: 512
+  hp.n_inducing: 64
+  hp.pretrain_steps: 100
+  hp.use_float64: true
+  hp.variational_lr: 0.01

@@ -1,0 +1,2 @@
+run_number,RMSE_pooled,nRMSE,NSE_pooled,NSE_id_median,MAE_pooled,run_sig
+1,5.747460120611311,0.19286778928225876,0.95087367152513,-32.99509572177739,2.554335897802449,in52_out16_ep50_seed40_full_merged_r0_spf0p8_sc20_ss42_lsp0p5

@@ -1,0 +1,5 @@
+trial,run_sig,status,objective,train_s,eval_s,elapsed_s,error,hp.model.use_revin,hp.training.lr_scheduler.enabled
+1,gru_ablation_revin_scheduler_t001_seed40_full_merged,ok,0.16122327901480932,846.884,229.706,1076.616,,True,False
+2,gru_ablation_revin_scheduler_t002_seed40_full_merged,ok,0.21117067606442497,1245.775,222.859,1468.637,,False,True
+3,gru_ablation_revin_scheduler_t003_seed40_full_merged,ok,0.16122327901480932,803.193,225.322,1028.519,,True,True
+4,gru_ablation_revin_scheduler_t004_seed40_full_merged,ok,0.21117067606442497,1243.623,231.732,1475.358,,False,False

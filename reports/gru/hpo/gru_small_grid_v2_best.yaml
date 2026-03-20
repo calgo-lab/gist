@@ -1,0 +1,16 @@
+hpo_name: gru_small_grid_v2
+objective_mode: min
+best_objective: 0.22808718696181166
+best_trial:
+  trial: 3
+  run_sig: gru_small_grid_v2_t003_seed40_full_merged
+  status: ok
+  objective: 0.22808718696181166
+  train_s: 2313.834
+  eval_s: 237.365
+  elapsed_s: 2551.202
+  error: ''
+  hp.model.gru_dropout: 0.2
+  hp.model.gru_hidden: 192
+  hp.model.gru_layers: 3
+  hp.training.lr: 0.0003
