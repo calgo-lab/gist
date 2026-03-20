@@ -218,6 +218,9 @@ def main():
     else:
         data_path = Path(data_cfg["full_merged_path"])
 
+    gp_features = list(gp_cfg.get("gp_features", []))
+    gp_features_onehot = list(gp_cfg.get("gp_features_onehot", []))
+
     cols = ["datum", "id", "gws", "x_25833", "y_25833"]
     gws = (
         pd.read_csv(data_path, usecols=cols, low_memory=False)
@@ -234,6 +237,18 @@ def main():
         pred["gws_pred"] = pred["gws"]
 
     coords = gws[["id", "x_25833", "y_25833"]].drop_duplicates("id")
+    onehot_cols = []
+    if gp_features or gp_features_onehot:
+        meta_path = Path(data_cfg.get("metadata_path", ""))
+        meta = pd.read_csv(meta_path, sep=";")[["id"] + gp_features + gp_features_onehot]
+        coords = coords.merge(meta, on="id", how="left")
+        for f in gp_features:
+            coords[f] = coords[f].fillna(coords[f].median())
+        for f in gp_features_onehot:
+            dummies = pd.get_dummies(coords[f], prefix=f, drop_first=True).astype(float)
+            onehot_cols.extend(dummies.columns.tolist())
+            coords = pd.concat([coords.drop(columns=[f]), dummies], axis=1)
+    feature_cols = ["x_25833", "y_25833"] + gp_features + onehot_cols
     pred = pred.merge(coords, on="id", how="left")
 
     all_dates = pred["datum"].drop_duplicates().sort_values()
@@ -249,7 +264,8 @@ def main():
 
     coords_arr = coords.set_index("id")
     train_coords_df = coords_arr.loc[coords_arr.index.isin(train_ids)]
-    coord_scaler = StandardScaler().fit(train_coords_df[["x_25833", "y_25833"]].to_numpy())
+    feature_scaler = StandardScaler().fit(train_coords_df[feature_cols].to_numpy())
+    n_dims = len(feature_cols)
 
     out_rows = []
     valid_pairs = 0
@@ -260,7 +276,7 @@ def main():
         train_pred_h = pred_h[pred_h["id"].isin(train_ids)].dropna(subset=["x_25833", "y_25833", "gws_pred"])
 
         gp = make_gp_layer(
-            backend=backend, n_spatial_dims=2,
+            backend=backend, n_spatial_dims=n_dims,
             jitter=args.jitter, n_inducing=n_inducing, use_float64=use_float64,
         ).to(device)
 
@@ -268,7 +284,7 @@ def main():
             print(f"  horizon {h}: no train predictions — skipping kernel pretrain")
         else:
             X_all = torch.tensor(
-                coord_scaler.transform(train_pred_h[["x_25833", "y_25833"]].to_numpy()),
+                feature_scaler.transform(train_pred_h[feature_cols].to_numpy()),
                 dtype=torch.float32, device=device
             )
             y_all = torch.tensor(train_pred_h["gws_pred"].to_numpy(), dtype=torch.float32, device=device)
@@ -291,7 +307,7 @@ def main():
             if not np.isfinite(ls) or not np.isfinite(os_) or not np.isfinite(nz):
                 print("    non-finite GP hyperparams after pretrain; re-init GP without pretrain for this horizon")
                 gp = make_gp_layer(
-                    backend=backend, n_spatial_dims=2,
+                    backend=backend, n_spatial_dims=n_dims,
                     jitter=args.jitter, n_inducing=n_inducing, use_float64=use_float64,
                 ).to(device)
                 ls  = float(gp.length_scale().detach().float().view(-1)[0].item())
@@ -301,7 +317,9 @@ def main():
 
         for dt in dates:
             gws_dt = gws[gws["datum"] == dt][["id", "gws", "x_25833", "y_25833"]]
-            holdout_true = gws_dt[gws_dt["id"].isin(holdout_ids)].dropna()
+            holdout_true = gws_dt[gws_dt["id"].isin(holdout_ids)].dropna(subset=["gws", "x_25833", "y_25833"])
+            if gp_features or onehot_cols:
+                holdout_true = holdout_true.merge(coords[["id"] + gp_features + onehot_cols], on="id", how="left")
             if holdout_true.empty:
                 skipped.append((dt, h, "no holdout obs"))
                 continue
@@ -312,9 +330,9 @@ def main():
                 skipped.append((dt, h, "no train predictions"))
                 continue
 
-            X_train_np = coord_scaler.transform(pred_sel[["x_25833", "y_25833"]].to_numpy())
+            X_train_np = feature_scaler.transform(pred_sel[feature_cols].to_numpy())
             y_train_np = pred_sel["gws_pred"].to_numpy()
-            X_test_np  = coord_scaler.transform(holdout_true[["x_25833", "y_25833"]].to_numpy())
+            X_test_np  = feature_scaler.transform(holdout_true[feature_cols].to_numpy())
 
             X_train_t = torch.tensor(X_train_np, dtype=torch.float32, device=device)
             y_train_t = torch.tensor(y_train_np, dtype=torch.float32, device=device)
