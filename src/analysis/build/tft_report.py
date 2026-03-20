@@ -5,7 +5,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import pyarrow.parquet as pq
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 
 KUNZ_FILE = ROOT / "reports/tft/metrics/kunz_metrics_aggregated.parquet"
 FULL_TABLE_CSV = ROOT / "reports/tft/metrics/tft_metrics_summary.csv"
@@ -59,11 +59,9 @@ def horizon_variation_analysis(pred_path):
     rows = []
     for dt in sample_dates:
         d_rows = pred[pred["datum"] == dt]
-        # Per-well range across all horizons, then median across wells
         well_ranges = d_rows.groupby("index")["gws"].agg(lambda x: x.max() - x.min())
         median_horizon_range = well_ranges.median()
         n_wells = int(well_ranges.count())
-        # Spatial range at h=1
         h1_vals = d_rows[np.isclose(d_rows["horizon"], 1.0)]["gws"]
         spatial_range = float(h1_vals.max() - h1_vals.min())
         ratio = median_horizon_range / spatial_range if spatial_range > 0 else np.nan
@@ -228,7 +226,6 @@ def main():
 
     final.to_csv(FULL_TABLE_CSV, index=False)
 
-    # --- NSE by horizon plot ---
     FIGURES_DIR.mkdir(parents=True, exist_ok=True)
     fig, ax = plt.subplots(figsize=(9, 5))
     for run_label in final["run"].unique():
