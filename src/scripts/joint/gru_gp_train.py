@@ -586,6 +586,13 @@ def main():
         spatial_seed=spatial_seed, lambda_spatial=lambda_spatial,
     )
     run_dir = ROOT / "outputs" / "GRU_GP_JOINT" / f"GRU_GP_JOINT_{run_sig}"
+    if run_dir.exists():
+        i = 2
+        while (ROOT / "outputs" / "GRU_GP_JOINT" / f"GRU_GP_JOINT_{run_sig}_v{i}").exists():
+            i += 1
+        run_sig = f"{run_sig}_v{i}"
+        run_dir = ROOT / "outputs" / "GRU_GP_JOINT" / f"GRU_GP_JOINT_{run_sig}"
+        print(f"Warning: run_sig already exists, using {run_sig}")
     run_dir.mkdir(parents=True, exist_ok=True)
 
     torch.save(
