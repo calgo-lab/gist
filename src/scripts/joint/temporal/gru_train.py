@@ -68,15 +68,13 @@ def _resolve_data_file(data_cfg, dataset):
     raise ValueError(f"Unknown DATASET={dataset}")
 
 
-def _resolve_run_sig(tft_cfg, dataset, in_len, out_len, n_epochs, batch_size, seed, use_revin, use_scheduler, spatial_fraction, spatial_clusters, spatial_seed):
+def _resolve_run_sig(tft_cfg, dataset, in_len, out_len, n_epochs, batch_size, seed, spatial_fraction, spatial_clusters, spatial_seed):
     run_sig_cfg = str(tft_cfg.get("run_sig", "")).strip()
     if run_sig_cfg and run_sig_cfg.lower() != "auto":
         return run_sig_cfg
-    revin_tag = "r1" if bool(use_revin) else "r0"
-    sched_tag = "s1" if bool(use_scheduler) else "s0"
     return (
         f"in{in_len}_out{out_len}_ep{n_epochs}_bs{batch_size}"
-        f"_seed{seed}_{dataset}_{revin_tag}_{sched_tag}"
+        f"_seed{seed}_{dataset}"
         f"_spf{str(spatial_fraction).replace('.', 'p')}_sc{spatial_clusters}_ss{spatial_seed}"
     )
 
@@ -127,7 +125,7 @@ def _build_windows(df, in_len, out_len, cov_cols, well_stats, well_static, targe
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="configs/gru.yaml")
+    parser.add_argument("--config", default="configs/gru/gru.yaml")
     args = parser.parse_args()
 
     data_cfg = _load_yaml("configs/data.yaml")
@@ -151,17 +149,10 @@ def main():
     es_patience = int(es_cfg.get("patience", 5))
     es_min_delta = float(es_cfg.get("min_delta", 0.0))
     es_mode = str(es_cfg.get("mode", "min")).strip().lower()
-    sch_cfg = training_cfg.get("lr_scheduler", {})
-    use_scheduler = bool(sch_cfg.get("enabled", True))
-    sch_mode = str(sch_cfg.get("mode", "min"))
-    sch_factor = float(sch_cfg.get("factor", 0.5))
-    sch_patience = int(sch_cfg.get("patience", 5))
-    sch_min_lr = float(sch_cfg.get("min_lr", 0.0))
 
     hidden_size = int(model_cfg.get("gru_hidden", 64))
     num_layers = int(model_cfg.get("gru_layers", 1))
     dropout = float(model_cfg.get("gru_dropout", 0.0))
-    use_revin = bool(model_cfg.get("use_revin", False))
 
     spatial_fraction = float(spatial_cfg.get("train_fraction", 0.5))
     spatial_clusters = int(spatial_cfg.get("cluster_count", 10))
@@ -188,7 +179,6 @@ def main():
         save_path=split_path,
     )
 
-    # Per-well GWS stats from training period only (for per-well normalization)
     train_df = gws_bb[gws_bb["datum"] <= TRAIN_CUTOFF]
     well_stats = {}
     for gid, g in train_df.groupby("id"):
@@ -196,14 +186,12 @@ def main():
         if len(vals) > 0:
             well_stats[gid] = (float(vals.mean()), float(max(vals.std(), 1e-6)))
 
-    # Static features
     static_cols = [c for c in gws_bb.columns if re.search(STATIC_FEATURE_REGEX, c)]
     well_static = {}
     for gid, g in gws_bb.groupby("id"):
         row = g[static_cols].iloc[0].fillna(0.0).to_numpy(dtype=np.float32)
         well_static[gid] = row
 
-    # Scale statics fit on all training wells
     if static_cols and well_static:
         static_scaler = StandardScaler()
         all_static = np.stack([well_static[gid] for gid in well_static])
@@ -245,7 +233,6 @@ def main():
     x_future_train = cov_scaler.transform(x_future_train.reshape(-1, len(COV_COLS))).reshape(x_future_train.shape)
     x_future_val = cov_scaler.transform(x_future_val.reshape(-1, len(COV_COLS))).reshape(x_future_val.shape)
 
-    # y and x_past[:, :, 0] are already per-well normalized; reconstruct with scaled covariates
     x_past_train = np.concatenate([x_past_train[:, :, :1], x_past_train_cov], axis=2)
     x_past_val = np.concatenate([x_past_val[:, :, :1], x_past_val_cov], axis=2)
 
@@ -273,18 +260,8 @@ def main():
         dropout=dropout,
         out_len=out_len,
         static_input_size=len(static_cols),
-        use_revin=use_revin,
     ).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    scheduler = None
-    if use_scheduler:
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer,
-            mode=sch_mode,
-            factor=sch_factor,
-            patience=sch_patience,
-            min_lr=sch_min_lr,
-        )
     loss_fn = torch.nn.MSELoss()
 
     best_val = None
@@ -300,7 +277,6 @@ def main():
         "dropout": dropout,
         "out_len": out_len,
         "static_input_size": len(static_cols),
-        "use_revin": use_revin,
     }
 
     for epoch in range(1, n_epochs + 1):
@@ -333,8 +309,6 @@ def main():
 
         train_loss = float(np.mean(train_losses))
         val_loss = float(np.mean(val_losses))
-        if scheduler is not None:
-            scheduler.step(val_loss)
         print(f"epoch={epoch} train_loss={train_loss:.6f} val_loss={val_loss:.6f} time={time.time() - t_epoch:.1f}s")
 
         improved = (
@@ -355,7 +329,6 @@ def main():
                 "dropout": dropout,
                 "out_len": out_len,
                 "static_input_size": len(static_cols),
-                "use_revin": use_revin,
             }
         else:
             no_improve += 1
@@ -370,8 +343,6 @@ def main():
         n_epochs=n_epochs,
         batch_size=batch_size,
         seed=seed,
-        use_revin=use_revin,
-        use_scheduler=use_scheduler,
         spatial_fraction=spatial_fraction,
         spatial_clusters=spatial_clusters,
         spatial_seed=spatial_seed,

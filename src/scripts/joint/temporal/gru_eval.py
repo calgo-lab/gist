@@ -52,15 +52,13 @@ def _resolve_data_file(data_cfg, dataset):
     raise ValueError(f"Unknown DATASET={dataset}")
 
 
-def _resolve_run_sig(tft_cfg, dataset, in_len, out_len, epochs, batch_size, seed, use_revin, use_scheduler, spatial_fraction, spatial_clusters, spatial_seed):
+def _resolve_run_sig(tft_cfg, dataset, in_len, out_len, epochs, batch_size, seed, spatial_fraction, spatial_clusters, spatial_seed):
     run_sig_cfg = str(tft_cfg.get("run_sig", "")).strip()
     if run_sig_cfg and run_sig_cfg.lower() != "auto":
         return run_sig_cfg
-    revin_tag = "r1" if bool(use_revin) else "r0"
-    sched_tag = "s1" if bool(use_scheduler) else "s0"
     return (
         f"in{in_len}_out{out_len}_ep{epochs}_bs{batch_size}"
-        f"_seed{seed}_{dataset}_{revin_tag}_{sched_tag}"
+        f"_seed{seed}_{dataset}"
         f"_spf{str(spatial_fraction).replace('.', 'p')}_sc{spatial_clusters}_ss{spatial_seed}"
     )
 
@@ -111,7 +109,7 @@ def _build_windows(df, in_len, out_len, cov_cols, well_stats, well_static, targe
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="configs/gru.yaml")
+    parser.add_argument("--config", default="configs/gru/gru.yaml")
     args = parser.parse_args()
 
     data_cfg = _load_yaml("configs/data.yaml")
@@ -128,9 +126,6 @@ def main():
     out_len = int(data_cfg_tft.get("out_len", 16))
     epochs = int(training_cfg.get("epochs", 20))
     batch_size = int(training_cfg.get("batch_size", 1024))
-    use_revin = bool(gru_cfg.get("model", {}).get("use_revin", False))
-    use_scheduler = bool(gru_cfg.get("training", {}).get("lr_scheduler", {}).get("enabled", True))
-
     spatial_fraction = float(spatial_cfg.get("train_fraction", 0.5))
     spatial_clusters = int(spatial_cfg.get("cluster_count", 10))
     spatial_seed = int(spatial_cfg.get("split_seed", 42))
@@ -161,8 +156,6 @@ def main():
         epochs=epochs,
         batch_size=batch_size,
         seed=seed,
-        use_revin=use_revin,
-        use_scheduler=use_scheduler,
         spatial_fraction=spatial_fraction,
         spatial_clusters=spatial_clusters,
         spatial_seed=spatial_seed,
@@ -176,7 +169,6 @@ def main():
     well_stats = scalers["well_stats"]
     static_scaler = scalers.get("static_scaler")
 
-    # Build static features using same regex as train
     static_cols = [c for c in gws_bb.columns if re.search(STATIC_FEATURE_REGEX, c)]
     well_static = {}
     for gid, g in gws_bb.groupby("id"):
@@ -202,7 +194,6 @@ def main():
 
     x_past_cov = cov_scaler.transform(x_past_val[:, :, 1:].reshape(-1, len(COV_COLS))).reshape(x_past_val[:, :, 1:].shape)
     x_future_val = cov_scaler.transform(x_future_val.reshape(-1, len(COV_COLS))).reshape(x_future_val.shape)
-    # x_past[:, :, 0] is already per-well normalized; reconstruct with scaled covariates
     x_past_val = np.concatenate([x_past_val[:, :, :1], x_past_cov], axis=2)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -215,7 +206,6 @@ def main():
         dropout=checkpoint["dropout"],
         out_len=checkpoint["out_len"],
         static_input_size=checkpoint.get("static_input_size", 0),
-        use_revin=checkpoint.get("use_revin", False),
     ).to(device)
     model.load_state_dict(checkpoint["model"])
     model.eval()
@@ -230,7 +220,6 @@ def main():
             chunks.append(model(xp, xf, xs).cpu().numpy())
         pred = np.concatenate(chunks, axis=0)
 
-    # Denormalize per-well
     pred_denorm = pred.copy()
     y_val_denorm = y_val.copy()
     for i, (gid, _start_time, _end_time, _times) in enumerate(meta_val):
