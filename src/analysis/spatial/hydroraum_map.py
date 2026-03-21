@@ -5,7 +5,8 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import pyarrow.parquet as pq
 
-ROOT = Path(__file__).resolve().parents[4]
+ROOT = Path(__file__).resolve().parents[3]
+DATA_ROOT = ROOT.parent / "data"
 
 COLORS = {
     "Speisungsgebiete": "#2166ac",
@@ -19,8 +20,8 @@ LABELS = {
 }
 
 def main():
-    meta = pd.read_csv(ROOT / "data" / "meta_LFU_info.csv", sep=";")
-    merged_ids = pq.read_table(ROOT / "data" / "merged.parquet", columns=["id"]).to_pandas()["id"].unique()
+    meta = pd.read_csv(DATA_ROOT / "meta_LFU_info.csv", sep=";")
+    merged_ids = pq.read_table(DATA_ROOT / "merged.parquet", columns=["id"]).to_pandas()["id"].unique()
     meta = meta[meta["id"].isin(merged_ids)].dropna(subset=["x_25833", "y_25833", "hydroraum"])
 
     gdf_wells = gpd.GeoDataFrame(
@@ -29,7 +30,7 @@ def main():
         crs="EPSG:25833",
     )
 
-    boundary = gpd.read_file(ROOT / "data" / "boundaries" / "geoBoundaries-DEU-ADM1_simplified.geojson")
+    boundary = gpd.read_file(DATA_ROOT / "boundaries" / "geoBoundaries-DEU-ADM1_simplified.geojson")
     boundary = boundary.to_crs("EPSG:25833")
 
     fig, ax = plt.subplots(figsize=(10, 10))
