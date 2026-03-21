@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: gw-gru-l4-feat-seed40-ep50-a100
+  name: gw-gru-gok-only-seed40-ep50-a100
   labels:
     app: gw-gru-time
 spec:
@@ -33,7 +33,7 @@ spec:
           medium: Memory
           sizeLimit: "16Gi"
       containers:
-      - name: gru-time
+      - name: gru-gok-only
         image: row56/gw-pred:py312-cu124
         imagePullPolicy: Always
         resources:
@@ -59,10 +59,24 @@ spec:
           source /storage/venv/bin/activate
           cd /storage/gwl-interpolation
 
+          CFG=/tmp/gru_gok_only.yaml
+          python3 -c "
+          import yaml
+          cfg = yaml.safe_load(open('configs/gru/gru.yaml'))
+          cfg['run_sig'] = 'in52_out16_ep50_bs4096_seed40_full_merged_spf0p8_gok_only'
+          cfg['exclude_static_features'] = [
+              'TWI_dgm50_r1000m',
+              'parde_seasonality',
+              'GW_recharge_r1000m',
+              'gw_gespannt_bin',
+          ]
+          yaml.dump(cfg, open('$CFG', 'w'), default_flow_style=False)
+          "
+
           mkdir -p reports/gru/logs
           {
-            echo "=== TRAIN gru_l2_ep50 ==="
-            time python src/scripts/joint/temporal/gru_train.py --config configs/gru/gru.yaml
-            echo "=== EVAL gru_l2_ep50 ==="
-            time python src/scripts/joint/temporal/gru_eval.py --config configs/gru/gru.yaml
-          } 2>&1 | tee "reports/gru/logs/gru_l4_feat_ep50.log"
+            echo '=== TRAIN gru gok-only ==='
+            time python src/scripts/joint/temporal/gru_train.py --config $CFG
+            echo '=== EVAL gru gok-only ==='
+            time python src/scripts/joint/temporal/gru_eval.py --config $CFG
+          } 2>&1 | tee "reports/gru/logs/gru_gok_only_ep50.log"
