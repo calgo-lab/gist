@@ -1,0 +1,77 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gw-gru-l4-all-train-seed40-ep50-a100
+  labels:
+    app: gw-gru-time
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: gw-gru-time
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        gpu: a100
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - cl-worker24
+      volumes:
+      - name: gw-pred-rwx
+        persistentVolumeClaim:
+          claimName: gw-pred-rwx
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: "16Gi"
+      containers:
+      - name: gru-time
+        image: row56/gw-pred:py312-cu124
+        imagePullPolicy: Always
+        resources:
+          requests:
+            cpu: "16"
+            memory: 64Gi
+            nvidia.com/gpu: 1
+          limits:
+            memory: 64Gi
+            nvidia.com/gpu: 1
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        volumeMounts:
+        - name: gw-pred-rwx
+          mountPath: /storage
+        - name: dshm
+          mountPath: /dev/shm
+        command: ["bash", "-lc"]
+        args:
+        - |
+          set -euo pipefail
+          source /storage/venv/bin/activate
+          cd /storage/gwl-interpolation
+
+          CFG=/tmp/gru_all_train.yaml
+          python3 -c "
+          import yaml
+          cfg = yaml.safe_load(open('configs/gru/gru.yaml'))
+          cfg['spatial_split']['file'] = 'splits/all_train.csv'
+          cfg['run_sig'] = 'in52_out16_ep50_bs4096_seed40_full_merged_all_train'
+          yaml.dump(cfg, open('$CFG', 'w'), default_flow_style=False)
+          "
+
+          mkdir -p reports/gru/logs
+          {
+            echo "=== TRAIN gru_l4_all_train ==="
+            time python src/scripts/joint/temporal/gru_train.py --config $CFG
+            echo "=== EVAL gru_l4_all_train ==="
+            time python src/scripts/joint/temporal/gru_eval.py --config $CFG
+          } 2>&1 | tee "reports/gru/logs/gru_l4_all_train_ep50.log"
