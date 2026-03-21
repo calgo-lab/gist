@@ -1,7 +1,7 @@
 dataset: full_merged
 model: GRU_FCOV
 gru_run_sig: "gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42"
-gp_run_tag: "gp_add_features_maxpts10k"
+gp_run_tag: "gp_gok_only"
 run_sig: auto
 seed: 40
 spatial_split:
@@ -11,7 +11,7 @@ max_pairs: 0
 date_freq: "ME"
 pretrain_steps: 300
 pretrain_lr: 0.01
-max_pretrain_pts: 10000
+max_pretrain_pts: 2000
 
 backend: "gpytorch"
 kernel_type: "matern32"
@@ -23,14 +23,7 @@ use_float64: true
 
 gp_features:
   - gok
-  - GW_recharge_r1000m
-  - TWI_dgm50_r1000m
-  - DSD_order1_r1000m
-  - LP_order1_r1000m
-  - SD_order1_r1000m
-  - HGN_anthro
-gp_features_onehot:
-  - hydroraum
+gp_features_onehot: []
 
 kernel:
   nu: 1.5
