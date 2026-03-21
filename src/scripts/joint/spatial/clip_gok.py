@@ -77,13 +77,18 @@ def main():
 
     per_id_rows = []
     for well_id, g in df.groupby("id"):
+        iqr = float(np.diff(np.quantile(g["gws_true"], [0.25, 0.75]))[0])
+        nrmse_well = _rmse(g["gws_forecast"].to_numpy(), g["gws_true"].to_numpy()) / iqr if iqr > 0 else float("nan")
         per_id_rows.append({
             "id": well_id,
             "NSE_over_time": _nse(g["gws_forecast"].to_numpy(), g["gws_true"].to_numpy()),
+            "nRMSE": nrmse_well,
         })
     per_id_df = pd.DataFrame(per_id_rows)
     per_id_valid = per_id_df["NSE_over_time"].to_numpy(dtype=float)
     per_id_valid = per_id_valid[np.isfinite(per_id_valid)]
+    nrmse_per_well = per_id_df["nRMSE"].to_numpy(dtype=float)
+    nrmse_per_well = nrmse_per_well[np.isfinite(nrmse_per_well)]
 
     metrics = {
         "RMSE":          _rmse(pred_all, real_all),
@@ -92,7 +97,9 @@ def main():
         "NSE_id_median": float(np.median(per_id_valid)) if per_id_valid.size else float("nan"),
         "NSE_id_mean":   float(np.mean(per_id_valid)) if per_id_valid.size else float("nan"),
         "MAE":           float(np.mean(abs_err)),
-        "n_clipped":     float(n_clipped),
+        "nRMSE_id_median": float(np.median(nrmse_per_well)) if nrmse_per_well.size else float("nan"),
+        "nRMSE_id_mean":   float(np.mean(nrmse_per_well)) if nrmse_per_well.size else float("nan"),
+        "n_clipped":       float(n_clipped),
     }
 
     out_dir = pred_path.parent / "gok_clipped"
