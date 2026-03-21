@@ -1,16 +1,16 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: gw-gru-l4-feat-seed40-ep50-a100
+  name: gw-gru-gp-lsp001
   labels:
-    app: gw-gru-time
+    app: gw-gru-gp-joint
 spec:
   backoffLimit: 0
   ttlSecondsAfterFinished: 86400
   template:
     metadata:
       labels:
-        app: gw-gru-time
+        app: gw-gru-gp-joint
     spec:
       restartPolicy: Never
       nodeSelector:
@@ -33,7 +33,7 @@ spec:
           medium: Memory
           sizeLimit: "16Gi"
       containers:
-      - name: gru-time
+      - name: gru-gp-gpytorch
         image: row56/gw-pred:py312-cu124
         imagePullPolicy: Always
         resources:
@@ -59,10 +59,14 @@ spec:
           source /storage/venv/bin/activate
           cd /storage/gwl-interpolation
 
-          mkdir -p reports/gru/logs
+          CFG=/tmp/gru_gp_lsp001.yaml
+          sed 's/lambda_spatial: .*/lambda_spatial: 0.01/' configs/joint/gru_gp.yaml \
+            | sed 's/^run_sig: .*/run_sig: in52_out16_ep50_seed40_full_merged_random_max_dist_90_lsp0p01/' > $CFG
+
+          mkdir -p reports/gru_gp/logs
           {
-            echo "=== TRAIN gru_l2_ep50 ==="
-            time python src/scripts/joint/temporal/gru_train.py --config configs/gru/gru.yaml
-            echo "=== EVAL gru_l2_ep50 ==="
-            time python src/scripts/joint/temporal/gru_eval.py --config configs/gru/gru.yaml
-          } 2>&1 | tee "reports/gru/logs/gru_l4_feat_ep50.log"
+            echo "=== JOINT TRAIN lsp=0.01 ==="
+            time python src/scripts/joint/gru_gp_train.py --config $CFG
+            echo "=== JOINT EVAL ==="
+            time python src/scripts/joint/gru_gp_eval.py --config $CFG
+          } 2>&1 | tee "reports/gru_gp/logs/joint_lsp0p01.log"
