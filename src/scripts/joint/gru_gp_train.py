@@ -280,7 +280,7 @@ def main():
         hr_slug = hydroraum_filter.lower().replace(" ", "_")
         split_path = split_path.with_stem(split_path.stem + f"_hr_{hr_slug}")
     if not split_path.exists():
-        _, split_path = load_or_create_split(
+        load_or_create_split(
             gws_full,
             static_regex=STATIC_FEATURE_REGEX,
             train_fraction=spatial_fraction,
