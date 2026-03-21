@@ -32,7 +32,10 @@ STATIC_FEATURE_REGEX = (
     "|gwn"
     "|huek250.+_(kf).+"
     "|corine"
-    "|twi"
+    "|^TWI_dgm50_r1000m$"
+    "|^gok$"
+    "|^parde_seasonality$"
+    "|^GW_recharge_r1000m$"
 )
 COV_COLS = ["tas_5km", "hurs_5km", "pr_5km", "tag_sin", "tag_cos"]
 TRAIN_CUTOFF = pd.Timestamp("20160101")
