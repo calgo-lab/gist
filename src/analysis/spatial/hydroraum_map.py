@@ -6,7 +6,8 @@ import matplotlib.patches as mpatches
 import pyarrow.parquet as pq
 
 ROOT = Path(__file__).resolve().parents[3]
-DATA_ROOT = ROOT.parent / "data"
+SHARED_DATA = ROOT.parent / "data"
+REPO_DATA = ROOT / "data"
 
 COLORS = {
     "Speisungsgebiete": "#2166ac",
@@ -20,8 +21,8 @@ LABELS = {
 }
 
 def main():
-    meta = pd.read_csv(DATA_ROOT / "meta_LFU_info.csv", sep=";")
-    merged_ids = pq.read_table(DATA_ROOT / "merged.parquet", columns=["id"]).to_pandas()["id"].unique()
+    meta = pd.read_csv(SHARED_DATA / "meta_LFU_info.csv", sep=";")
+    merged_ids = pq.read_table(SHARED_DATA / "merged.parquet", columns=["id"]).to_pandas()["id"].unique()
     meta = meta[meta["id"].isin(merged_ids)].dropna(subset=["x_25833", "y_25833", "hydroraum"])
 
     gdf_wells = gpd.GeoDataFrame(
@@ -30,8 +31,8 @@ def main():
         crs="EPSG:25833",
     )
 
-    boundary = gpd.read_file(DATA_ROOT / "boundaries" / "geoBoundaries-DEU-ADM1_simplified.geojson")
-    boundary = boundary.to_crs("EPSG:25833")
+    boundary = gpd.read_file(REPO_DATA / "boundaries" / "geoBoundaries-DEU-ADM1_simplified.geojson")
+    boundary = boundary[boundary["shapeName"] == "Brandenburg"].to_crs("EPSG:25833")
 
     fig, ax = plt.subplots(figsize=(10, 10))
     boundary.plot(ax=ax, color="whitesmoke", edgecolor="gray", linewidth=0.5)
