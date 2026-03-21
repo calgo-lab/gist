@@ -43,6 +43,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--pred", required=True, help="Path to gp_pred.parquet")
     parser.add_argument("--meta", default=None, help="Path to meta_LFU_info.csv")
+    parser.add_argument("--clip-all", action="store_true", help="Clip all wells regardless of aquifer type")
     args = parser.parse_args()
 
     data_cfg_path = ROOT / "configs" / "data.yaml"
@@ -64,7 +65,7 @@ def main():
     df = df.merge(meta, on="id", how="left")
 
     before = df["gws_forecast"].copy()
-    mask = df["ungespannt"] & df["gok"].notna()
+    mask = df["gok"].notna() if args.clip_all else (df["ungespannt"] & df["gok"].notna())
     df.loc[mask, "gws_forecast"] = df.loc[mask, ["gws_forecast", "gok"]].min(axis=1)
 
     n_clipped = int((df["gws_forecast"] < before).sum())
