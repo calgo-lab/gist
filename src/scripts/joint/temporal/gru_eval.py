@@ -20,6 +20,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from libs.spatial_split import load_or_create_split, resolve_split_path
+from libs.run_registry import lookup_run_id
 from gru_model import GRUSeq2Seq
 
 STATIC_FEATURE_REGEX = (
@@ -34,6 +35,10 @@ STATIC_FEATURE_REGEX = (
     "|^gok$"
     "|^parde_seasonality$"
     "|^GW_recharge_r1000m$"
+    "|^gw_gespannt_bin$"
+    "|^hydroraum_Entlastungsgebiete$"
+    "|^hydroraum_Transitgebiete$"
+    "|^hydroraum_Speisungsgebiete$"
 )
 COV_COLS = ["tas_5km", "hurs_5km", "pr_5km", "tag_sin", "tag_cos"]
 TRAIN_CUTOFF = pd.Timestamp("20160101")
@@ -139,6 +144,17 @@ def main():
     )
 
     gws_full = _load_dataset(data_file)
+    if "gw_gespannt" in gws_full.columns:
+        gws_full["gw_gespannt_bin"] = (gws_full["gw_gespannt"] == "gespannt").astype("float32")
+
+    if gru_cfg.get("add_hydroraum_onehot", False) and "hydroraum" in gws_full.columns:
+        for cat in ["Entlastungsgebiete", "Transitgebiete", "Speisungsgebiete"]:
+            gws_full[f"hydroraum_{cat}"] = (gws_full["hydroraum"] == cat).astype("float32")
+
+    hydroraum_filter = gru_cfg.get("hydroraum_filter", None)
+    if hydroraum_filter and "hydroraum" in gws_full.columns:
+        gws_full = gws_full[gws_full["hydroraum"] == hydroraum_filter].copy()
+        print(f"hydroraum_filter={hydroraum_filter!r}: {gws_full['id'].nunique()} wells retained")
 
     split_path = resolve_split_path(ROOT / "splits", dataset, spatial_cfg)
     gws_bb, _ = load_or_create_split(
@@ -163,7 +179,9 @@ def main():
         spatial_clusters=spatial_clusters,
         spatial_seed=spatial_seed,
     )
-    run_dir = ROOT / "outputs" / "GRU_FCOV" / f"GRU_FCOV_{run_sig}"
+    run_id = lookup_run_id(ROOT / "outputs", "GRU_FCOV", run_sig)
+    run_dir = ROOT / "outputs" / "GRU_FCOV" / f"GRU_FCOV_{run_id}"
+    print(f"Evaluating run ID: {run_id}  (sig: {run_sig})")
     model_path = run_dir / "model.pt"
     scaler_path = run_dir / "scalers.pkl"
     with scaler_path.open("rb") as f:
@@ -173,6 +191,9 @@ def main():
     static_scaler = scalers.get("static_scaler")
 
     static_cols = [c for c in gws_bb.columns if re.search(STATIC_FEATURE_REGEX, c)]
+    exclude_static = gru_cfg.get("exclude_static_features", [])
+    if exclude_static:
+        static_cols = [c for c in static_cols if not any(re.search(p, c) for p in exclude_static)]
     well_static = {}
     for gid, g in gws_bb.groupby("id"):
         row = g[static_cols].iloc[0].fillna(0.0).to_numpy(dtype=np.float32)

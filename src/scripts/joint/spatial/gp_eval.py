@@ -22,6 +22,7 @@ import yaml
 from sklearn.preprocessing import StandardScaler
 
 from libs.spatial_split import resolve_split_path
+from libs.run_registry import lookup_run_id, read_registry
 from gp_layer import make_gp_layer
 
 
@@ -198,11 +199,15 @@ def main():
     n_inducing   = int(args.n_inducing)
     variational_lr = float(args.variational_lr)
     use_float64  = _as_bool(args.use_float64)
-    pred_path = (
-        Path(args.pred_path)
-        if args.pred_path
-        else ROOT / "outputs" / model_prefix / f"{model_prefix}_{gru_run_sig}" / "predictions" / "pred.parquet"
-    )
+    if args.pred_path:
+        pred_path = Path(args.pred_path)
+    else:
+        # Try registry lookup first; fall back to old-style long-sig directory
+        try:
+            gru_run_id = lookup_run_id(ROOT / "outputs", model_prefix, gru_run_sig)
+            pred_path = ROOT / "outputs" / model_prefix / f"{model_prefix}_{gru_run_id}" / "predictions" / "pred.parquet"
+        except (FileNotFoundError, ValueError):
+            pred_path = ROOT / "outputs" / model_prefix / f"{model_prefix}_{gru_run_sig}" / "predictions" / "pred.parquet"
     if not pred_path.exists():
         raise FileNotFoundError(f"pred.parquet not found: {pred_path}")
 

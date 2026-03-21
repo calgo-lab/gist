@@ -27,6 +27,7 @@ for _p in [
         sys.path.insert(0, _p)
 
 from libs.spatial_split import resolve_split_path
+from libs.run_registry import lookup_run_id
 from gru_model import GRUSeq2Seq
 from gp_layer import make_gp_layer
 
@@ -149,10 +150,11 @@ def main():
                 f"_spf{spf}_sc{spatial_clusters}_ss{spatial_seed}_lsp{lsp}"
             )
 
-    run_dir = ROOT / "outputs" / "GRU_GP_JOINT" / f"GRU_GP_JOINT_{run_sig}"
+    run_id = lookup_run_id(ROOT / "outputs", "GRU_GP_JOINT", run_sig)
+    run_dir = ROOT / "outputs" / "GRU_GP_JOINT" / f"GRU_GP_JOINT_{run_id}"
     if not run_dir.exists():
         raise FileNotFoundError(f"Joint run directory not found: {run_dir}")
-    print(f"Loading from {run_dir}")
+    print(f"Evaluating run ID: {run_id}  (sig: {run_sig})")
 
     gru_ckpt = torch.load(run_dir / "model.pt", map_location="cpu")
     gp_ckpt = torch.load(run_dir / "gp_models.pt", map_location="cpu")

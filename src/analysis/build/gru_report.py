@@ -28,6 +28,7 @@ reports/gru/figures/config_seed_comparison.png
 """
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -36,6 +37,9 @@ import pandas as pd
 import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT / "src"))
+from libs.run_registry import read_registry
+
 GRU_ROOT = ROOT / "outputs" / "GRU_FCOV"
 HPO_DIR = ROOT / "reports" / "gru" / "hpo"
 METRICS_DIR = ROOT / "reports" / "gru" / "metrics"
@@ -158,6 +162,12 @@ def collect_runs():
     horizon_parts = []
     meta_hp_rows = []
 
+    registry = read_registry(ROOT / "outputs")
+    reg_by_id = {}
+    if not registry.empty and "run_id" in registry.columns and "model_type" in registry.columns:
+        for _, row in registry[registry["model_type"] == "GRU_FCOV"].iterrows():
+            reg_by_id[f"{int(row['run_id']):04d}"] = row.to_dict()
+
     for run_dir in sorted(GRU_ROOT.glob("GRU_FCOV_*")):
         pred_path = run_dir / "predictions" / "pred.parquet"
         if not pred_path.exists():
@@ -167,7 +177,13 @@ def collect_runs():
         if pred_df.empty or not {"id", "horizon", "gws_forecast", "gws"}.issubset(pred_df.columns):
             continue
 
-        run_sig = run_dir.name.removeprefix("GRU_FCOV_")
+        dir_suffix = run_dir.name.removeprefix("GRU_FCOV_")
+        if dir_suffix.isdigit() and len(dir_suffix) == 4 and dir_suffix in reg_by_id:
+            run_sig = reg_by_id[dir_suffix].get("run_sig", dir_suffix)
+            run_id_label = dir_suffix
+        else:
+            run_sig = dir_suffix
+            run_id_label = None
 
         meta = {}
         trained_epochs = None
@@ -184,9 +200,18 @@ def collect_runs():
 
         hz["run_sig"] = run_sig
         horizon_parts.append(hz)
-        summary_rows.append(_summary_row(hz, run_sig, trained_epochs))
+        row_summary = _summary_row(hz, run_sig, trained_epochs)
+        if run_id_label is not None:
+            row_summary["run_id"] = run_id_label
+        summary_rows.append(row_summary)
 
         hp = _hp_from_meta(meta)
+        if run_id_label is not None and run_id_label in reg_by_id:
+            reg = reg_by_id[run_id_label]
+            for src, dst in [("hidden_size", "hidden"), ("num_layers", "layers"),
+                              ("dropout", "dropout"), ("lr", "lr")]:
+                if src in reg and not hp.get(dst):
+                    hp[dst] = reg[src]
         if hp:
             meta_hp_rows.append({"run_sig": run_sig, **hp})
 

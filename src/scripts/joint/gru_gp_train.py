@@ -26,7 +26,8 @@ for _p in [
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from libs.spatial_split import resolve_split_path
+from libs.spatial_split import resolve_split_path, load_or_create_split
+from libs.run_registry import assign_run_id
 from gru_model import GRUSeq2Seq
 from gp_layer import make_gp_layer
 
@@ -266,8 +267,28 @@ def main():
     rng = np.random.default_rng(seed)
 
     gws_full = _load_dataset(data_file)
+    if "gw_gespannt" in gws_full.columns:
+        gws_full["gw_gespannt_bin"] = (gws_full["gw_gespannt"] == "gespannt").astype("float32")
+
+    hydroraum_filter = gru_cfg.get("hydroraum_filter", None)
+    if hydroraum_filter and "hydroraum" in gws_full.columns:
+        gws_full = gws_full[gws_full["hydroraum"] == hydroraum_filter].copy()
+        print(f"hydroraum_filter={hydroraum_filter!r}: {gws_full['id'].nunique()} wells retained")
 
     split_path = resolve_split_path(ROOT / "splits", dataset, spatial_cfg)
+    if hydroraum_filter:
+        hr_slug = hydroraum_filter.lower().replace(" ", "_")
+        split_path = split_path.with_stem(split_path.stem + f"_hr_{hr_slug}")
+    if not split_path.exists():
+        _, split_path = load_or_create_split(
+            gws_full,
+            static_regex=STATIC_FEATURE_REGEX,
+            train_fraction=spatial_fraction,
+            n_clusters=spatial_clusters,
+            rng_seed=spatial_seed,
+            exclude_terms=spatial_excludes,
+            save_path=split_path,
+        )
     split_df = pd.read_csv(split_path)
     split_df = _make_three_way_split(split_df, val_fraction=spatial_val_fraction, rng_seed=spatial_seed)
 
@@ -585,15 +606,21 @@ def main():
         spatial_fraction=spatial_fraction, spatial_clusters=spatial_clusters,
         spatial_seed=spatial_seed, lambda_spatial=lambda_spatial,
     )
-    run_dir = ROOT / "outputs" / "GRU_GP_JOINT" / f"GRU_GP_JOINT_{run_sig}"
-    if run_dir.exists():
-        i = 2
-        while (ROOT / "outputs" / "GRU_GP_JOINT" / f"GRU_GP_JOINT_{run_sig}_v{i}").exists():
-            i += 1
-        run_sig = f"{run_sig}_v{i}"
-        run_dir = ROOT / "outputs" / "GRU_GP_JOINT" / f"GRU_GP_JOINT_{run_sig}"
-        print(f"Warning: run_sig already exists, using {run_sig}")
+    run_id = assign_run_id(
+        ROOT / "outputs", "GRU_GP_JOINT", run_sig,
+        meta={
+            "dataset": dataset, "in_len": in_len, "out_len": out_len,
+            "epochs": n_epochs, "seed": seed,
+            "split_file": str(spatial_cfg.get("file", "")),
+            "hidden_size": hidden_size, "num_layers": num_layers,
+            "dropout": dropout, "gru_lr": gru_lr, "gp_lr": gp_lr,
+            "lambda_spatial": lambda_spatial, "backend": backend,
+            "n_inducing": n_inducing,
+        },
+    )
+    run_dir = ROOT / "outputs" / "GRU_GP_JOINT" / f"GRU_GP_JOINT_{run_id}"
     run_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Run ID: {run_id}  (sig: {run_sig})")
 
     torch.save(
         {
@@ -629,6 +656,7 @@ def main():
     split_df.to_csv(run_dir / "split_info.csv", index=False)
 
     meta_out = {
+        "run_id": run_id, "run_sig": run_sig,
         "dataset": dataset, "in_len": in_len, "out_len": out_len, "seed": seed,
         "n_epochs": n_epochs, "trained_epochs": trained_epochs, "best_epoch": best_epoch,
         "best_val_combined": float(best_val) if best_val is not None else None,
