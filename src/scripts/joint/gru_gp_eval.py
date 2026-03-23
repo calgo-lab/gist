@@ -166,6 +166,7 @@ def main():
     cov_scaler = scalers["cov_scaler"]
     well_stats = scalers["well_stats"]
     static_scaler = scalers.get("static_scaler")
+    feat_scaler = scalers.get("feat_scaler")
 
     split_df = pd.read_csv(run_dir / "split_info.csv")
     train_ids = set(split_df.loc[split_df["spatial_split"] == "spatial_train", "id"])
@@ -219,6 +220,36 @@ def main():
         for wid in raw_coords
     }
 
+    # Build combined GP input dict (coords + extra features if trained with them)
+    gp_config = gp_ckpt["gp_config"]
+    gp_features = gp_config.get("gp_features", [])
+    gp_features_onehot = gp_config.get("gp_features_onehot", [])
+    onehot_categories = gp_config.get("onehot_categories", {})
+    n_feature_dims = gp_config.get("n_spatial_dims", 2) - 2
+    well_gp_features = {}
+    if gp_features or gp_features_onehot:
+        meta_path = Path(data_cfg.get("metadata_path", ""))
+        meta_df = pd.read_csv(meta_path, sep=";")[["id"] + gp_features + gp_features_onehot].drop_duplicates("id")
+        cont_vals = meta_df[gp_features].values.astype(np.float32) if gp_features else np.zeros((len(meta_df), 0), dtype=np.float32)
+        if gp_features and feat_scaler is not None:
+            cont_vals = feat_scaler.transform(cont_vals).astype(np.float32)
+        onehot_parts = []
+        for f in gp_features_onehot:
+            cats = onehot_categories.get(f, sorted(meta_df[f].dropna().unique().tolist()))
+            dummies = pd.get_dummies(meta_df[f], prefix=f).reindex(
+                columns=[f"{f}_{c}" for c in cats], fill_value=0
+            ).astype(np.float32)
+            onehot_parts.append(dummies.values)
+        cat_vals = np.concatenate(onehot_parts, axis=1) if onehot_parts else np.zeros((len(meta_df), 0), dtype=np.float32)
+        all_extra = np.concatenate([cont_vals, cat_vals], axis=1)
+        for i, wid in enumerate(meta_df["id"].values):
+            well_gp_features[wid] = all_extra[i]
+
+    gp_coords = {
+        wid: np.concatenate([coords_scaled[wid], well_gp_features.get(wid, np.zeros(n_feature_dims, dtype=np.float32))])
+        for wid in coords_scaled
+    }
+
     eval_gws = gws_full[gws_full["id"].isin(eval_ids)][["datum", "id", "gws"]].dropna(subset=["gws"])
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -236,12 +267,11 @@ def main():
     model.load_state_dict(gru_ckpt["model"])
     model.eval()
 
-    gp_config = gp_ckpt["gp_config"]
     gp_models = []
     for h in range(out_len):
         gp = make_gp_layer(
             backend=gp_config["backend"],
-            n_spatial_dims=2,
+            n_spatial_dims=gp_config.get("n_spatial_dims", 2),
             n_inducing=gp_config["n_inducing"],
             jitter=gp_config["jitter"],
             use_float64=gp_config["use_float64"],
@@ -288,7 +318,7 @@ def main():
             y_pred_norm = model(xp, xf, xs)
 
             X_train_sp = torch.tensor(
-                np.array([coords_scaled[wid] for wid in batch_well_ids]), device=device
+                np.array([gp_coords[wid] for wid in batch_well_ids]), device=device
             )
             means_t = torch.tensor(
                 [well_stats.get(wid, (0.0, 1.0))[0] for wid in batch_well_ids],
@@ -309,7 +339,7 @@ def main():
                 eval_well_ids = list(eval_data.keys())
                 gws_true = np.array([eval_data[wid] for wid in eval_well_ids])
                 X_eval_sp = torch.tensor(
-                    np.array([coords_scaled[wid] for wid in eval_well_ids]), device=device
+                    np.array([gp_coords[wid] for wid in eval_well_ids]), device=device
                 )
 
                 y_pred_h = y_pred_norm[:, h_idx] * stds_t + means_t

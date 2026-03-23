@@ -105,11 +105,19 @@ def _build_windows(df, in_len, out_len, cov_cols, well_stats, well_static, targe
     return x_past, x_future, y, x_static, meta
 
 
-def _make_three_way_split(split_df, val_fraction=0.5, rng_seed=0):
+def _make_three_way_split(split_df, val_fraction=0.5, rng_seed=0, val_from_train_fraction=None):
     rng = np.random.default_rng(rng_seed)
     split_df = split_df.copy()
-    holdout = split_df[split_df["spatial_split"] == "spatial_holdout"]
 
+    if val_from_train_fraction is not None:
+        split_df.loc[split_df["spatial_split"] == "spatial_holdout", "spatial_split"] = "spatial_test"
+        train_ids = split_df.loc[split_df["spatial_split"] == "spatial_train", "id"].to_numpy()
+        n_val = max(1, int(round(len(train_ids) * val_from_train_fraction)))
+        val_ids = set(rng.choice(train_ids, size=n_val, replace=False).tolist())
+        split_df.loc[split_df["id"].isin(val_ids), "spatial_split"] = "spatial_val"
+        return split_df
+
+    holdout = split_df[split_df["spatial_split"] == "spatial_holdout"]
     val_ids = set()
     for _, group in holdout.groupby("cluster"):
         ids = group["id"].to_numpy()
@@ -154,11 +162,12 @@ def _pretrain_gp_kernels(gp_models, gru_model, x_past, x_future, x_static, meta,
     all_pred_norm = np.concatenate(all_pred_norm, axis=0)
 
     all_pred_denorm = np.zeros_like(all_pred_norm)
-    all_coords = np.zeros((len(meta), 2), dtype=np.float32)
+    n_dims = len(next(iter(coords_scaled.values()))) if coords_scaled else 2
+    all_coords = np.zeros((len(meta), n_dims), dtype=np.float32)
     for i, (gid, _, _, _) in enumerate(meta):
         mean_y, std_y = well_stats.get(gid, (0.0, 1.0))
         all_pred_denorm[i] = all_pred_norm[i] * std_y + mean_y
-        all_coords[i] = coords_scaled.get(gid, np.zeros(2, dtype=np.float32))
+        all_coords[i] = coords_scaled.get(gid, np.zeros(n_dims, dtype=np.float32))
 
     for h_idx, gp in enumerate(gp_models):
         X_all = torch.tensor(all_coords, dtype=torch.float32, device=device)
@@ -245,6 +254,9 @@ def main():
         if s.strip()
     )
 
+    gp_features = list(gp_cfg.get("gp_features", []))
+    gp_features_onehot = list(gp_cfg.get("gp_features_onehot", []))
+
     backend = str(gp_cfg.get("backend", "gpytorch")).strip().lower()
     n_inducing = int(gp_cfg.get("n_inducing", 64))
     jitter = float(gp_cfg.get("jitter", 1e-4))
@@ -258,6 +270,9 @@ def main():
     gp_lr = float(joint_cfg.get("gp_lr", 1e-3))
     gru_pretrained_run_sig = str(joint_cfg.get("gru_pretrained_run_sig", "")).strip()
     spatial_val_fraction = float(joint_cfg.get("spatial_val_fraction", 0.5))
+    val_from_train_fraction = joint_cfg.get("val_from_train_fraction", None)
+    if val_from_train_fraction is not None:
+        val_from_train_fraction = float(val_from_train_fraction)
     min_train_wells = int(joint_cfg.get("min_train_wells", 5))
     min_val_wells = int(joint_cfg.get("min_val_wells", 2))
     val_gp_stride = int(joint_cfg.get("val_gp_stride", 4))
@@ -290,7 +305,7 @@ def main():
             save_path=split_path,
         )
     split_df = pd.read_csv(split_path)
-    split_df = _make_three_way_split(split_df, val_fraction=spatial_val_fraction, rng_seed=spatial_seed)
+    split_df = _make_three_way_split(split_df, val_fraction=spatial_val_fraction, rng_seed=spatial_seed, val_from_train_fraction=val_from_train_fraction)
 
     train_ids = set(split_df.loc[split_df["spatial_split"] == "spatial_train", "id"])
     val_ids = set(split_df.loc[split_df["spatial_split"] == "spatial_val", "id"])
@@ -362,6 +377,38 @@ def main():
         for wid in raw_coords
     }
 
+    # Build combined GP input dict (coords + optional extra features)
+    n_feature_dims = 0
+    feat_scaler = None
+    onehot_categories = {}
+    well_gp_features = {}
+    if gp_features or gp_features_onehot:
+        meta_path = Path(data_cfg.get("metadata_path", ""))
+        meta_df = pd.read_csv(meta_path, sep=";")[["id"] + gp_features + gp_features_onehot].drop_duplicates("id")
+        cont_vals = meta_df[gp_features].values.astype(np.float32) if gp_features else np.zeros((len(meta_df), 0), dtype=np.float32)
+        if gp_features:
+            feat_scaler = StandardScaler()
+            cont_vals = feat_scaler.fit_transform(cont_vals).astype(np.float32)
+        onehot_parts = []
+        for f in gp_features_onehot:
+            cats = sorted(meta_df[f].dropna().unique().tolist())
+            onehot_categories[f] = cats
+            dummies = pd.get_dummies(meta_df[f], prefix=f).reindex(
+                columns=[f"{f}_{c}" for c in cats], fill_value=0
+            ).astype(np.float32)
+            onehot_parts.append(dummies.values)
+        cat_vals = np.concatenate(onehot_parts, axis=1) if onehot_parts else np.zeros((len(meta_df), 0), dtype=np.float32)
+        all_extra = np.concatenate([cont_vals, cat_vals], axis=1)
+        n_feature_dims = all_extra.shape[1]
+        for i, wid in enumerate(meta_df["id"].values):
+            well_gp_features[wid] = all_extra[i]
+        print(f"GP extra features: {gp_features} + onehot{gp_features_onehot} -> {n_feature_dims} extra dims")
+
+    gp_coords = {
+        wid: np.concatenate([coords_scaled[wid], well_gp_features.get(wid, np.zeros(n_feature_dims, dtype=np.float32))])
+        for wid in coords_scaled
+    }
+
     val_gws_lookup = _build_gws_lookup(gws_full, val_ids)
 
     train_date_idx = _build_date_index(train_meta)
@@ -394,7 +441,7 @@ def main():
 
     gp_models = [
         make_gp_layer(
-            backend=backend, n_spatial_dims=2, n_inducing=n_inducing,
+            backend=backend, n_spatial_dims=2 + n_feature_dims, n_inducing=n_inducing,
             jitter=jitter, use_float64=use_float64, init_noise=init_noise,
         ).to(device)
         for _ in range(out_len)
@@ -404,7 +451,7 @@ def main():
         _pretrain_gp_kernels(
             gp_models, model,
             x_past_train, x_future_train, x_static_train, train_meta,
-            well_stats, coords_scaled,
+            well_stats, gp_coords,
             device, n_steps=gp_pretrain_steps, lr=gp_pretrain_lr,
         )
 
@@ -454,7 +501,7 @@ def main():
 
             # Training locations for GP
             X_train_sp = torch.tensor(
-                np.array([coords_scaled[wid] for wid in batch_well_ids]), device=device,
+                np.array([gp_coords[wid] for wid in batch_well_ids]), device=device,
             )
             means_t = torch.tensor(
                 [well_stats.get(wid, (0.0, 1.0))[0] for wid in batch_well_ids],
@@ -481,7 +528,7 @@ def main():
 
                 # Validation locations for GP
                 X_val_sp = torch.tensor(
-                    np.array([coords_scaled[wid] for wid in val_well_ids]), device=device,
+                    np.array([gp_coords[wid] for wid in val_well_ids]), device=device,
                 )
 
                 ##################### Denormalize GRU predictions for the current horizon -> GP training observations
@@ -542,7 +589,7 @@ def main():
                 y_pred = model(xp, xf, xs)
 
                 X_train_sp = torch.tensor(
-                    np.array([coords_scaled[wid] for wid in batch_well_ids]), device=device
+                    np.array([gp_coords[wid] for wid in batch_well_ids]), device=device
                 )
                 means_t = torch.tensor(
                     [well_stats.get(wid, (0.0, 1.0))[0] for wid in batch_well_ids],
@@ -564,7 +611,7 @@ def main():
                         [val_data[wid] for wid in val_well_ids], dtype=torch.float32, device=device,
                     )
                     X_val_sp = torch.tensor(
-                        np.array([coords_scaled[wid] for wid in val_well_ids]), device=device
+                        np.array([gp_coords[wid] for wid in val_well_ids]), device=device
                     )
                     y_pred_h = y_pred[:, h_idx] * stds_t + means_t
                     y_gp = gp_models[h_idx](X_train_sp, y_pred_h, X_val_sp)
@@ -642,13 +689,17 @@ def main():
             "gp_config": {
                 "backend": backend, "n_inducing": n_inducing, "jitter": jitter,
                 "use_float64": use_float64, "init_noise": init_noise, "out_len": out_len,
+                "n_spatial_dims": 2 + n_feature_dims,
+                "gp_features": gp_features,
+                "gp_features_onehot": gp_features_onehot,
+                "onehot_categories": onehot_categories,
             },
         },
         run_dir / "gp_models.pt",
     )
 
     with (run_dir / "scalers.pkl").open("wb") as f:
-        pickle.dump({"cov_scaler": cov_scaler, "well_stats": well_stats, "static_scaler": static_scaler}, f)
+        pickle.dump({"cov_scaler": cov_scaler, "well_stats": well_stats, "static_scaler": static_scaler, "feat_scaler": feat_scaler}, f)
 
     with (run_dir / "coord_scaler.pkl").open("wb") as f:
         pickle.dump(coord_scaler, f)
