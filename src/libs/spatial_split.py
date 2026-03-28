@@ -107,8 +107,8 @@ def spatial_split_random_max_dist(coords_df, train_fraction=0.9, k=3, d_percenti
 
     XY = coords[["x_25833", "y_25833"]].to_numpy()
     tree = cKDTree(XY)
-    dists, _ = tree.query(XY, k=k + 1)  # +1 to include self
-    mean_dist_k = dists[:, 1:].mean(axis=1)  # exclude self
+    dists, _ = tree.query(XY, k=k + 1)
+    mean_dist_k = dists[:, 1:].mean(axis=1)
 
     d_threshold = np.percentile(mean_dist_k, d_percentile)
     eligible_ids = coords.loc[mean_dist_k <= d_threshold, "id"].to_numpy()
