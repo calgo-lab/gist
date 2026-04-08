@@ -37,6 +37,7 @@ STATIC_FEATURE_REGEX = (
     "|^gok$"
     "|^parde_seasonality$"
     "|^GW_recharge_r1000m$"
+    "|^siwa_verweilzeit_j$"
     "|^gw_gespannt_bin$"
     "|^hydroraum_Entlastungsgebiete$"
     "|^hydroraum_Transitgebiete$"
@@ -186,6 +187,13 @@ def main():
     if hydroraum_filter and "hydroraum" in gws_full.columns:
         gws_full = gws_full[gws_full["hydroraum"] == hydroraum_filter].copy()
         print(f"hydroraum_filter={hydroraum_filter!r}: {gws_full['id'].nunique()} wells retained")
+
+    gwlk_exclude = gru_cfg.get("gwlk_exclude", None)
+    if gwlk_exclude is not None and "gwlk" in gws_full.columns:
+        exclude_vals = [gwlk_exclude] if not isinstance(gwlk_exclude, list) else gwlk_exclude
+        mask = gws_full["gwlk"].astype(str).str.startswith(tuple(str(v) for v in exclude_vals))
+        gws_full = gws_full[~mask].copy()
+        print(f"gwlk_exclude={gwlk_exclude!r}: {gws_full['id'].nunique()} wells retained")
 
     split_path = resolve_split_path(ROOT / "splits", dataset, spatial_cfg)
     gws_bb, _ = load_or_create_split(
