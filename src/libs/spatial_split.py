@@ -20,7 +20,15 @@ def resolve_split_path(splits_root, dataset, spatial_cfg=None):
     cfg = spatial_cfg if isinstance(spatial_cfg, dict) else {}
     file_cfg = str(cfg.get("file", "")).strip()
     if not file_cfg:
-        return Path(splits_root) / f"spatial_split_{dataset}.csv"
+        split_type  = str(cfg.get("split_type", "kmeans")).strip().lower()
+        frac        = str(cfg.get("train_fraction", 0.5)).replace(".", "p")
+        seed        = cfg.get("split_seed", 42)
+        n_clusters  = cfg.get("cluster_count", 10)
+        if split_type == "kmeans":
+            fname = f"spatial_split_{dataset}_{split_type}_f{frac}_sc{n_clusters}_ss{seed}.csv"
+        else:
+            fname = f"spatial_split_{dataset}_{split_type}_f{frac}_ss{seed}.csv"
+        return Path(splits_root) / fname
     p = Path(file_cfg)
     if p.is_absolute():
         return p
@@ -54,7 +62,7 @@ def prepare_static_matrix(gws_bb, static_cols):
     return subset
 
 
-def spatial_train_subset(gws_bb, static_regex,train_fraction, n_clusters, rng_seed, exclude_terms, save_path):
+def spatial_split_kmeans(gws_bb, static_regex,train_fraction, n_clusters, rng_seed, exclude_terms, save_path):
     
     frac = float(train_fraction)
     
@@ -100,6 +108,23 @@ def spatial_train_subset(gws_bb, static_regex,train_fraction, n_clusters, rng_se
     return filtered, info
 
 
+def spatial_split_random(gws_bb, train_fraction, rng_seed, save_path):
+    ids = gws_bb['id'].drop_duplicates().to_numpy()
+    rng = np.random.default_rng(int(rng_seed))
+    n_train = int(math.ceil(len(ids) * float(train_fraction)))
+    train_ids = set(rng.choice(ids, size=n_train, replace=False).tolist())
+
+    info = pd.DataFrame({'id': sorted(ids), 'cluster': 0})
+    info['spatial_split'] = np.where(info['id'].isin(train_ids), 'spatial_train', 'spatial_holdout')
+
+    if save_path:
+        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+        info.to_csv(save_path, index=False)
+
+    filtered = gws_bb[gws_bb['id'].isin(train_ids)].copy()
+    return filtered, info
+
+
 def spatial_split_random_max_dist(coords_df, train_fraction=0.9, k=3, d_percentile=25, rng_seed=42, save_path=None):
     coords = coords_df[["id", "x_25833", "y_25833"]].drop_duplicates("id").dropna(
         subset=["x_25833", "y_25833"]
@@ -138,7 +163,7 @@ def spatial_split_random_max_dist(coords_df, train_fraction=0.9, k=3, d_percenti
     return result
 
 
-def load_or_create_split(gws_bb, static_regex, train_fraction, n_clusters, rng_seed, exclude_terms, save_path):
+def load_or_create_split(gws_bb, static_regex, train_fraction, n_clusters, rng_seed, exclude_terms, save_path, split_type="random", max_dist_k=3, max_dist_percentile=25):
 
     if save_path and Path(save_path).exists():
         info = pd.read_csv(save_path)
@@ -146,7 +171,28 @@ def load_or_create_split(gws_bb, static_regex, train_fraction, n_clusters, rng_s
         filtered = gws_bb[gws_bb["id"].isin(train_ids)].copy()
         return filtered, info
 
-    return spatial_train_subset(
+    if split_type == "random":
+        return spatial_split_random(
+            gws_bb,
+            train_fraction=train_fraction,
+            rng_seed=rng_seed,
+            save_path=save_path,
+        )
+
+    if split_type == "max_dist":
+        info = spatial_split_random_max_dist(
+            gws_bb,
+            train_fraction=train_fraction,
+            k=max_dist_k,
+            d_percentile=max_dist_percentile,
+            rng_seed=rng_seed,
+            save_path=save_path,
+        )
+        train_ids = set(info.loc[info["spatial_split"] == "spatial_train", "id"])
+        filtered = gws_bb[gws_bb["id"].isin(train_ids)].copy()
+        return filtered, info
+
+    return spatial_split_kmeans(
         gws_bb,
         static_regex=static_regex,
         train_fraction=train_fraction,
