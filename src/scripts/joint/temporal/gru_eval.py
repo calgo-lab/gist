@@ -137,6 +137,9 @@ def main():
     spatial_fraction = float(spatial_cfg.get("train_fraction", 0.5))
     spatial_clusters = int(spatial_cfg.get("cluster_count", 10))
     spatial_seed = int(spatial_cfg.get("split_seed", 42))
+    spatial_split_type = str(spatial_cfg.get("split_type", "kmeans")).strip().lower()
+    max_dist_k = int(spatial_cfg.get("max_dist_k", 3))
+    max_dist_percentile = int(spatial_cfg.get("max_dist_percentile", 25))
     spatial_excludes = tuple(
         s.strip().lower()
         for s in str(spatial_cfg.get("exclude_terms", "geometry,x_,y_,lon,lat,koord")).split(",")
@@ -172,6 +175,9 @@ def main():
         rng_seed=spatial_seed,
         exclude_terms=spatial_excludes,
         save_path=split_path,
+        split_type=spatial_split_type,
+        max_dist_k=max_dist_k,
+        max_dist_percentile=max_dist_percentile,
     )
 
     run_sig = _resolve_run_sig(
