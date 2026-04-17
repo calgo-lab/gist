@@ -20,12 +20,16 @@ def resolve_split_path(splits_root, dataset, spatial_cfg=None):
     cfg = spatial_cfg if isinstance(spatial_cfg, dict) else {}
     file_cfg = str(cfg.get("file", "")).strip()
     if not file_cfg:
-        split_type  = str(cfg.get("split_type", "kmeans")).strip().lower()
-        frac        = str(cfg.get("train_fraction", 0.5)).replace(".", "p")
+        split_type  = str(cfg.get("split_type", "random")).strip().lower()
+        frac        = str(cfg.get("train_fraction", 0.9)).replace(".", "p")
         seed        = cfg.get("split_seed", 42)
-        n_clusters  = cfg.get("cluster_count", 10)
         if split_type == "kmeans":
+            n_clusters  = cfg.get("cluster_count", 10)
             fname = f"spatial_split_{dataset}_{split_type}_f{frac}_sc{n_clusters}_ss{seed}.csv"
+        elif split_type == "max_dist":
+            max_dist_k = cfg.get("max_dist_k", 3)
+            max_dist_percentile = cfg.get("max_dist_percentile", 25)
+            fname = f"spatial_split_{dataset}_{split_type}_f{frac}_k{max_dist_k}_p{max_dist_percentile}_ss{seed}.csv"
         else:
             fname = f"spatial_split_{dataset}_{split_type}_f{frac}_ss{seed}.csv"
         return Path(splits_root) / fname
@@ -117,9 +121,8 @@ def spatial_split_random(gws_bb, train_fraction, rng_seed, save_path):
     info = pd.DataFrame({'id': sorted(ids), 'cluster': 0})
     info['spatial_split'] = np.where(info['id'].isin(train_ids), 'spatial_train', 'spatial_holdout')
 
-    if save_path:
-        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
-        info.to_csv(save_path, index=False)
+    Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+    info.to_csv(save_path, index=False)
 
     filtered = gws_bb[gws_bb['id'].isin(train_ids)].copy()
     return filtered, info
