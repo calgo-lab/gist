@@ -142,6 +142,7 @@ def main():
     parser.add_argument("--n-inducing", type=int, default=None)
     parser.add_argument("--variational-lr", type=float, default=None)
     parser.add_argument("--use-float64", default=None)
+    parser.add_argument("--mean-type", default=None)
 
     config_args, _ = parser.parse_known_args()
     gp_cfg = _load_yaml(ROOT / config_args.config)
@@ -158,6 +159,7 @@ def main():
         n_inducing       = int(gp_cfg.get("n_inducing",       64)),
         variational_lr   = float(gp_cfg.get("variational_lr", 1e-2)),
         use_float64      = str(gp_cfg.get("use_float64",      True)).lower(),
+        mean_type        = str(gp_cfg.get("mean_type",        "zero")),
     )
     args = parser.parse_args()
 
@@ -199,6 +201,7 @@ def main():
     n_inducing   = int(args.n_inducing)
     variational_lr = float(args.variational_lr)
     use_float64  = _as_bool(args.use_float64)
+    mean_type    = str(args.mean_type).strip().lower()
     if args.pred_path:
         pred_path = Path(args.pred_path)
     else:
@@ -283,6 +286,7 @@ def main():
         gp = make_gp_layer(
             backend=backend, n_spatial_dims=n_dims,
             jitter=args.jitter, n_inducing=n_inducing, use_float64=use_float64,
+            mean_type=mean_type,
         ).to(device)
 
         if train_pred_h.empty:
