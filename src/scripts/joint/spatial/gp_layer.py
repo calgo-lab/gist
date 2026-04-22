@@ -8,6 +8,7 @@ def make_gp_layer(backend="gpytorch", **kwargs):
         accepted = {
             "n_spatial_dims", "n_inducing", "nu", "jitter",
             "use_float64", "init_noise", "noise_min", "noise_max",
+            "mean_type",
         }
         return SVGPLayer(**{k: v for k, v in kwargs.items() if k in accepted})
     raise ValueError(f"Unknown GP backend: {backend!r}. Only 'gpytorch' is supported.")

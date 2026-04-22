@@ -8,17 +8,17 @@ from gpytorch.constraints import Interval
 from gpytorch.distributions import MultivariateNormal
 from gpytorch.kernels import MaternKernel, ScaleKernel
 from gpytorch.likelihoods import GaussianLikelihood
-from gpytorch.means import ZeroMean
+from gpytorch.means import ConstantMean, ZeroMean
 from gpytorch.models import ApproximateGP
 from gpytorch.variational import CholeskyVariationalDistribution, VariationalStrategy
 
 
 class _SVGPModel(ApproximateGP):
-    def __init__(self, inducing_points, ard_num_dims=2, nu=1.5):
+    def __init__(self, inducing_points, ard_num_dims=2, nu=1.5, mean_type="zero"):
         vd = CholeskyVariationalDistribution(inducing_points.size(0))
         vs = VariationalStrategy(self, inducing_points, vd, learn_inducing_locations=True)
         super().__init__(vs)
-        self.mean_module = ZeroMean()
+        self.mean_module = ConstantMean() if mean_type == "constant" else ZeroMean()
         self.covar_module = ScaleKernel(
             MaternKernel(
                 nu=nu,
@@ -34,7 +34,8 @@ class _SVGPModel(ApproximateGP):
 
 class SVGPLayer(nn.Module):
     def __init__(self, n_spatial_dims=2, n_inducing=64, nu=1.5, jitter=1e-4,
-                 use_float64=True, init_noise=0.1, noise_min=1e-4, noise_max=2.0):
+                 use_float64=True, init_noise=0.1, noise_min=1e-4, noise_max=2.0,
+                 mean_type="zero"):
         super().__init__()
         self.n_spatial_dims = n_spatial_dims
         self.n_inducing = n_inducing
@@ -43,7 +44,7 @@ class SVGPLayer(nn.Module):
         self._work_dtype = torch.float64 if use_float64 else torch.float32
 
         inducing_pts = torch.randn(n_inducing, n_spatial_dims)
-        self.svgp = _SVGPModel(inducing_pts, ard_num_dims=n_spatial_dims, nu=nu)
+        self.svgp = _SVGPModel(inducing_pts, ard_num_dims=n_spatial_dims, nu=nu, mean_type=mean_type)
         self.likelihood = GaussianLikelihood(noise_constraint=Interval(noise_min ** 2, noise_max ** 2))
 
         with torch.no_grad():
