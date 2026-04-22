@@ -5,20 +5,19 @@ from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
-
+import pyarrow.parquet as pq
 
 ROOT = Path(__file__).resolve().parents[3]
 OUT_MET = ROOT / "reports" / "presentation_assets" / "metrics"
 OUT_FIG = ROOT / "reports" / "presentation_assets" / "figures"
-OUT_TXT = ROOT / "reports" / "presentation_assets" / "notes"
 
-
-SOURCE_MAP = {
-    "Global GRU": "cluster: outputs/GRU_FCOV/GRU_FCOV_in52_out16_ep50_bs4096_seed40_full_merged_all_train/predictions/pred.parquet",
-    "GP on true obs": "cluster: outputs/gp/GRU_FCOV_oracle_rmd90_test52__oracle_hpo_t020_ni128_ps200_j1e-03__predobstrain/gp_pred.parquet",
-    "GP on GRU preds": "cluster: outputs/gp/GRU_FCOV_in52_out16_ep50_bs8192_seed40_full_merged_test52_hpo_sep_t118__hpo_sep_t118__predobstrain/gp_pred.parquet",
-    "Joint training GRU + GP": "cluster: outputs/GRU_GP_JOINT/GRU_GP_JOINT_0260/eval/test/gp_pred.parquet",
+RUNS = {
+    "Global GRU": ROOT / "outputs/GRU_FCOV/GRU_FCOV_in52_out16_ep50_bs4096_seed40_full_merged_all_train/predictions/pred.parquet",
+    "GP on true obs": ROOT / "outputs/gp/GRU_FCOV_oracle_rmd90_test52__oracle_hpo_t020_ni128_ps200_j1e-03__predobstrain/gp_pred.parquet",
+    "GP on GRU preds": ROOT / "outputs/gp/GRU_FCOV_in52_out16_ep50_bs8192_seed40_full_merged_test52_hpo_sep_t118__hpo_sep_t118__predobstrain/gp_pred.parquet",
+    "Joint training GRU + GP": ROOT / "outputs/GRU_GP_JOINT/GRU_GP_JOINT_0260/eval/test/gp_pred.parquet",
 }
 MODEL_ORDER = [
     "Global GRU",
@@ -34,9 +33,56 @@ COLORS = {
 }
 
 
-def _ensure_dirs() -> None:
-    for path in [OUT_MET, OUT_FIG, OUT_TXT]:
-        path.mkdir(parents=True, exist_ok=True)
+def _load_split() -> set:
+    split = pd.read_csv(ROOT / "splits/rmd90_test52.csv")
+    col = "spatial_split" if "spatial_split" in split.columns else "split"
+    return set(split.loc[split[col].isin(["spatial_test", "spatial_holdout"]), "id"])
+
+
+def _normalize_pred(path: Path, test_ids: set) -> pd.DataFrame:
+    df = pq.read_table(path).to_pandas()
+    cols = set(df.columns)
+    pred_col = next((c for c in ["gws_forecast", "pred", "y_mean"] if c in cols), None)
+    true_col = next((c for c in ["gws_true", "gws", "target", "y"] if c in cols), None)
+    if pred_col is None or true_col is None:
+        raise ValueError(f"Could not infer pred/true columns for {path}: {list(cols)}")
+    out = df.rename(columns={pred_col: "pred", true_col: "true"})[["id", "datum", "horizon", "pred", "true"]].copy()
+    out["datum"] = pd.to_datetime(out["datum"])
+    out = out[out["id"].isin(test_ids)].copy()
+    out["datum_s"] = out["datum"].astype(str)
+    return out
+
+
+def _per_well_horizon_rmse(df: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    for (wid, h), g in df.groupby(["id", "horizon"]):
+        pred = g["pred"].to_numpy(dtype=float)
+        true = g["true"].to_numpy(dtype=float)
+        mask = np.isfinite(pred) & np.isfinite(true)
+        if mask.sum() < 2:
+            continue
+        rmse = float(np.sqrt(np.mean((pred[mask] - true[mask]) ** 2)))
+        rows.append({"id": wid, "horizon": int(h), "rmse": rmse})
+    return pd.DataFrame(rows)
+
+
+def _summary_stats(df: pd.DataFrame) -> dict:
+    per_well = []
+    for wid, g in df.groupby("id"):
+        pred = g["pred"].to_numpy(dtype=float)
+        true = g["true"].to_numpy(dtype=float)
+        mask = np.isfinite(pred) & np.isfinite(true)
+        if mask.sum() < 2:
+            continue
+        rmse = float(np.sqrt(np.mean((pred[mask] - true[mask]) ** 2)))
+        iqr = float(np.quantile(true[mask], 0.75) - np.quantile(true[mask], 0.25))
+        per_well.append({"rmse": rmse, "ratio": rmse / iqr if iqr > 0 else float("nan")})
+    s = pd.DataFrame(per_well)
+    return {
+        "median_nrmse_per_well": float(s["ratio"].median()),
+        "median_rmse_per_well_m": float(s["rmse"].median()),
+        "common_keys": len(df),
+    }
 
 
 def _make_plot(
@@ -50,16 +96,8 @@ def _make_plot(
     fig, ax = plt.subplots(figsize=(9.5, 5.7))
     for label in labels:
         sub = plot_df.loc[plot_df["model"] == label].sort_values("horizon")
-        ax.plot(
-            sub["horizon"],
-            sub["median_rmse_per_well"],
-            marker="o",
-            linewidth=2.2,
-            markersize=4.8,
-            color=COLORS[label],
-            label=label,
-        )
-
+        ax.plot(sub["horizon"], sub["median_rmse_per_well"], marker="o",
+                linewidth=2.2, markersize=4.8, color=COLORS[label], label=label)
     ax.set_xlabel("Forecast horizon")
     ax.set_ylabel("Median RMSE per well (m)")
     ax.set_title(title)
@@ -71,78 +109,60 @@ def _make_plot(
     plt.close(fig)
 
 
-def build_table_plot() -> tuple[Path, Path, Path]:
-    _ensure_dirs()
+def main() -> None:
+    OUT_MET.mkdir(parents=True, exist_ok=True)
+    OUT_FIG.mkdir(parents=True, exist_ok=True)
 
-    plot_df = pd.read_csv(OUT_MET / "slide_table_rmse_per_horizon_consistent.csv")
-    plot_df["source"] = plot_df["model"].map(SOURCE_MAP)
-    plot_df["model"] = pd.Categorical(plot_df["model"], categories=MODEL_ORDER, ordered=True)
-    plot_df = plot_df.sort_values(["model", "horizon"]).reset_index(drop=True)
+    test_ids = _load_split()
+    frames = {name: _normalize_pred(path, test_ids) for name, path in RUNS.items()}
 
-    summary_df = pd.read_csv(OUT_MET / "slide_table_consistent_metrics.csv")
-    summary_df["model"] = pd.Categorical(summary_df["model"], categories=MODEL_ORDER, ordered=True)
-    summary_df = summary_df.sort_values("model").reset_index(drop=True)
+    # Find common (id, datum_s, horizon) keys across all 4 models
+    common = None
+    for df in frames.values():
+        keys = set(zip(df["id"], df["datum_s"], df["horizon"]))
+        common = keys if common is None else common & keys
+    common_df = pd.DataFrame(sorted(common), columns=["id", "datum_s", "horizon"])
 
-    csv_path = OUT_MET / "slide_table_rmse_per_horizon.csv"
-    plot_df.to_csv(csv_path, index=False)
+    summary_rows = []
+    horizon_rows = []
+    for model, df in frames.items():
+        sub = df.merge(common_df, on=["id", "datum_s", "horizon"], how="inner")
+        stats = _summary_stats(sub)
+        stats["model"] = model
+        summary_rows.append(stats)
 
-    fig_path = OUT_FIG / "slide_table_rmse_per_horizon.png"
+        pw_h = _per_well_horizon_rmse(sub)
+        by_h = pw_h.groupby("horizon", as_index=False)["rmse"].median().rename(columns={"rmse": "median_rmse_per_well"})
+        by_h["model"] = model
+        horizon_rows.append(by_h)
+
+    summary = pd.DataFrame(summary_rows)
+    horizon = pd.concat(horizon_rows, ignore_index=True)
+    summary.to_csv(OUT_MET / "slide_table_consistent_metrics.csv", index=False)
+    horizon.to_csv(OUT_MET / "slide_table_rmse_per_horizon_consistent.csv", index=False)
+
+    horizon["model"] = pd.Categorical(horizon["model"], categories=MODEL_ORDER, ordered=True)
+    horizon = horizon.sort_values(["model", "horizon"]).reset_index(drop=True)
+
     _make_plot(
-        plot_df=plot_df,
+        plot_df=horizon,
         labels=MODEL_ORDER,
         title="Per-Well RMSE by Horizon on the Common Evaluation Window",
-        out_path=fig_path,
-        legend_loc="center left",
-        legend_anchor=(1.02, 0.5),
+        out_path=OUT_FIG / "slide_table_rmse_per_horizon.png",
     )
-
-    fig_no_gru_path = OUT_FIG / "slide_table_rmse_per_horizon_no_global_gru.png"
     _make_plot(
-        plot_df=plot_df,
-        labels=[label for label in MODEL_ORDER if label != "Global GRU"],
+        plot_df=horizon,
+        labels=[m for m in MODEL_ORDER if m != "Global GRU"],
         title="Per-Well RMSE by Horizon Without the Global GRU Baseline",
-        out_path=fig_no_gru_path,
+        out_path=OUT_FIG / "slide_table_rmse_per_horizon_no_global_gru.png",
         legend_loc="upper left",
         legend_anchor=(1.02, 1.0),
     )
 
-    rounded = {
-        row["model"]: (
-            f"{row['median_nrmse_per_well']:.4f}",
-            f"{row['median_rmse_per_well_m']:.4f}",
-        )
-        for _, row in summary_df.iterrows()
-    }
-    horizons = ", ".join(str(int(h)) for h in sorted(plot_df["horizon"].unique()))
-    common_keys = int(summary_df["common_keys"].iloc[0])
-    note = "\n".join([
-        "Figures: median per-well RMSE by forecast horizon for the slide-table pipelines.",
-        "This version is fully consistent across all four rows and plots.",
-        "Common evaluation slice:",
-        "- 52 holdout wells",
-        f"- {common_keys:,} common (well, date, horizon) keys",
-        f"- Horizons present in all four saved artifacts: {horizons}",
-        "Sources:",
-        "- Global GRU uses the all-1040-well GRU run `GRU_FCOV_in52_out16_ep50_bs4096_seed40_full_merged_all_train`.",
-        "- GP on true obs uses the oracle GP HPO best (`oracle_hpo_t020`).",
-        "- GP on GRU preds uses the decoupled HPO best (`hpo_sep_t118`).",
-        "- Joint training GRU + GP uses `GRU_GP_JOINT_0260`.",
-        "Consistent table values on that common slice:",
-        f"- Global GRU: nRMSE_pw={rounded['Global GRU'][0]}, RMSE_pw={rounded['Global GRU'][1]} m",
-        f"- GP on true obs: nRMSE_pw={rounded['GP on true obs'][0]}, RMSE_pw={rounded['GP on true obs'][1]} m",
-        f"- GP on GRU preds: nRMSE_pw={rounded['GP on GRU preds'][0]}, RMSE_pw={rounded['GP on GRU preds'][1]} m",
-        f"- Joint training GRU + GP: nRMSE_pw={rounded['Joint training GRU + GP'][0]}, RMSE_pw={rounded['Joint training GRU + GP'][1]} m",
-        "- `slide_table_rmse_per_horizon.png` shows all four lines with the legend moved outside the axes.",
-        "- `slide_table_rmse_per_horizon_no_global_gru.png` removes the global GRU baseline.",
-    ])
-    note_path = OUT_TXT / "slide_table_rmse_per_horizon_note.md"
-    note_path.write_text(note + "\n", encoding="utf-8")
-
-    return csv_path, fig_path, note_path
+    print("Done.")
+    for _, row in summary.iterrows():
+        print(f"  {row['model']}: nRMSE_pw={row['median_nrmse_per_well']:.4f}, RMSE_pw={row['median_rmse_per_well_m']:.4f} m")
 
 
 if __name__ == "__main__":
-    csv_path, fig_path, note_path = build_table_plot()
-    print(csv_path)
-    print(fig_path)
-    print(note_path)
+    main()

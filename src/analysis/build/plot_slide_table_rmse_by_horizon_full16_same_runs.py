@@ -5,13 +5,20 @@ from pathlib import Path
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 
 ROOT = Path(__file__).resolve().parents[3]
 OUT_MET = ROOT / 'reports' / 'presentation_assets' / 'metrics'
 OUT_FIG = ROOT / 'reports' / 'presentation_assets' / 'figures'
-OUT_TXT = ROOT / 'reports' / 'presentation_assets' / 'notes'
 
+RUNS = {
+    'Global GRU': ROOT / 'outputs/GRU_FCOV/GRU_FCOV_in52_out16_ep50_bs4096_seed40_full_merged_all_train/predictions/pred.parquet',
+    'GP on true obs': ROOT / 'outputs/gp/GRU_FCOV_oracle_rmd90_test52__oracle_hpo_t020_ni128_ps200_j1e-03__predobstrain/gp_pred.parquet',
+    'GP on GRU preds': ROOT / 'outputs/gp/GRU_FCOV_in52_out16_ep50_bs8192_seed40_full_merged_test52_hpo_sep_t118__hpo_sep_t118__predobstrain/gp_pred.parquet',
+    'Joint training GRU + GP': ROOT / 'outputs/GRU_GP_JOINT/GRU_GP_JOINT_0260/eval/test/gp_pred.parquet',
+}
 MODEL_ORDER = [
     'Global GRU',
     'GP on true obs',
@@ -26,19 +33,65 @@ COLORS = {
 }
 
 
+def _load_split() -> set:
+    split = pd.read_csv(ROOT / 'splits/rmd90_test52.csv')
+    col = 'spatial_split' if 'spatial_split' in split.columns else 'split'
+    return set(split.loc[split[col].isin(['spatial_test', 'spatial_holdout']), 'id'])
+
+
+def _normalize_pred(path: Path, test_ids: set) -> pd.DataFrame:
+    df = pq.read_table(path).to_pandas()
+    cols = set(df.columns)
+    pred_col = next((c for c in ['gws_forecast', 'pred', 'y_mean'] if c in cols), None)
+    true_col = next((c for c in ['gws_true', 'gws', 'target', 'y'] if c in cols), None)
+    if pred_col is None or true_col is None:
+        raise ValueError(f'Could not infer pred/true columns for {path}: {list(cols)}')
+    out = df.rename(columns={pred_col: 'pred', true_col: 'true'})[['id', 'datum', 'horizon', 'pred', 'true']].copy()
+    out['datum'] = pd.to_datetime(out['datum'])
+    return out[out['id'].isin(test_ids)].copy()
+
+
+def _per_well_horizon_rmse(df: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    for (wid, h), g in df.groupby(['id', 'horizon']):
+        pred = g['pred'].to_numpy(dtype=float)
+        true = g['true'].to_numpy(dtype=float)
+        mask = np.isfinite(pred) & np.isfinite(true)
+        if mask.sum() < 2:
+            continue
+        rmse = float(np.sqrt(np.mean((pred[mask] - true[mask]) ** 2)))
+        rows.append({'id': wid, 'horizon': int(h), 'rmse': rmse})
+    return pd.DataFrame(rows)
+
+
+def _summary_stats(df: pd.DataFrame, model: str) -> dict:
+    per_well = []
+    for wid, g in df.groupby('id'):
+        pred = g['pred'].to_numpy(dtype=float)
+        true = g['true'].to_numpy(dtype=float)
+        mask = np.isfinite(pred) & np.isfinite(true)
+        if mask.sum() < 2:
+            continue
+        rmse = float(np.sqrt(np.mean((pred[mask] - true[mask]) ** 2)))
+        iqr = float(np.quantile(true[mask], 0.75) - np.quantile(true[mask], 0.25))
+        per_well.append({'rmse': rmse, 'ratio': rmse / iqr if iqr > 0 else float('nan')})
+    s = pd.DataFrame(per_well)
+    return {
+        'model': model,
+        'n_wells': len(s),
+        'min_date': str(df['datum'].min().date()),
+        'max_date': str(df['datum'].max().date()),
+        'median_nrmse_per_well': float(s['ratio'].median()),
+        'median_rmse_per_well_m': float(s['rmse'].median()),
+    }
+
+
 def _make_plot(df: pd.DataFrame, labels: list[str], title: str, out_path: Path, legend_loc: str, legend_anchor: tuple[float, float]) -> None:
     fig, ax = plt.subplots(figsize=(9.5, 5.7))
     for label in labels:
         sub = df.loc[df['model'] == label].sort_values('horizon')
-        ax.plot(
-            sub['horizon'],
-            sub['median_rmse_per_well'],
-            marker='o',
-            linewidth=2.2,
-            markersize=4.8,
-            color=COLORS[label],
-            label=label,
-        )
+        ax.plot(sub['horizon'], sub['median_rmse_per_well'], marker='o',
+                linewidth=2.2, markersize=4.8, color=COLORS[label], label=label)
     ax.set_xlabel('Forecast horizon')
     ax.set_ylabel('Median RMSE per well (m)')
     ax.set_title(title)
@@ -51,69 +104,50 @@ def _make_plot(df: pd.DataFrame, labels: list[str], title: str, out_path: Path, 
 
 
 def main() -> None:
+    OUT_MET.mkdir(parents=True, exist_ok=True)
     OUT_FIG.mkdir(parents=True, exist_ok=True)
-    OUT_TXT.mkdir(parents=True, exist_ok=True)
 
-    horizon_df = pd.read_csv(OUT_MET / 'slide_table_rmse_per_horizon_same_runs_full16.csv')
-    metric_df = pd.read_csv(OUT_MET / 'slide_table_same_runs_full16_metrics.csv')
-    common_df = pd.read_csv(OUT_MET / 'slide_table_consistent_metrics.csv')
+    test_ids = _load_split()
+    frames = {name: _normalize_pred(path, test_ids) for name, path in RUNS.items()}
 
-    horizon_df['model'] = pd.Categorical(horizon_df['model'], categories=MODEL_ORDER, ordered=True)
-    horizon_df = horizon_df.sort_values(['model', 'horizon']).reset_index(drop=True)
+    summary_rows = []
+    horizon_rows = []
+    for model, df in frames.items():
+        summary_rows.append(_summary_stats(df, model))
+        pw_h = _per_well_horizon_rmse(df)
+        by_h = pw_h.groupby('horizon', as_index=False)['rmse'].median().rename(columns={'rmse': 'median_rmse_per_well'})
+        by_h['model'] = model
+        by_h['n_wells'] = df['id'].nunique()
+        horizon_rows.append(by_h)
 
-    fig_all = OUT_FIG / 'slide_table_rmse_per_horizon_all16_same_runs.png'
+    summary = pd.DataFrame(summary_rows)
+    horizon = pd.concat(horizon_rows, ignore_index=True)
+    summary.to_csv(OUT_MET / 'slide_table_same_runs_full16_metrics.csv', index=False)
+    horizon.to_csv(OUT_MET / 'slide_table_rmse_per_horizon_same_runs_full16.csv', index=False)
+
+    horizon['model'] = pd.Categorical(horizon['model'], categories=MODEL_ORDER, ordered=True)
+    horizon = horizon.sort_values(['model', 'horizon']).reset_index(drop=True)
+
     _make_plot(
-        df=horizon_df,
+        df=horizon,
         labels=MODEL_ORDER,
         title='Per-Well RMSE by Horizon for the Same Four Runs (All 16 Horizons)',
-        out_path=fig_all,
+        out_path=OUT_FIG / 'slide_table_rmse_per_horizon_all16_same_runs.png',
         legend_loc='center left',
         legend_anchor=(1.02, 0.5),
     )
-
-    fig_no_gru = OUT_FIG / 'slide_table_rmse_per_horizon_all16_same_runs_no_global_gru.png'
     _make_plot(
-        df=horizon_df,
-        labels=[label for label in MODEL_ORDER if label != 'Global GRU'],
+        df=horizon,
+        labels=[m for m in MODEL_ORDER if m != 'Global GRU'],
         title='Per-Well RMSE by Horizon Without the Global GRU Baseline (All 16 Horizons)',
-        out_path=fig_no_gru,
+        out_path=OUT_FIG / 'slide_table_rmse_per_horizon_all16_same_runs_no_global_gru.png',
         legend_loc='upper left',
         legend_anchor=(1.02, 1.0),
     )
 
-    full_map = {
-        row['model']: (row['median_nrmse_per_well'], row['median_rmse_per_well_m'], row['min_date'], row['max_date'])
-        for _, row in metric_df.iterrows()
-    }
-    common_map = {
-        row['model']: (row['median_nrmse_per_well'], row['median_rmse_per_well_m'])
-        for _, row in common_df.iterrows()
-    }
-
-    note = '\n'.join([
-        'Figures: all-16-horizon RMSE curves for the exact same four runs used in the table.',
-        'These plots use the same run identities and the same 52 rmd90_test52 wells as the table.',
-        'Difference from the table:',
-        '- The table uses the strict common-row slice across all four runs (11,232 shared keys).',
-        '- These plots use each run\'s full saved test52 rows so that all 16 horizons remain visible.',
-        '- Therefore the plot lines are run-matched to the table, but not row-by-row aligned to the table slice.',
-        'Full-slice aggregate metrics for the exact plotted runs:',
-        f"- Global GRU: nRMSE_pw={full_map['Global GRU'][0]:.4f}, RMSE_pw={full_map['Global GRU'][1]:.4f} m, range={full_map['Global GRU'][2]} to {full_map['Global GRU'][3]}",
-        f"- GP on true obs: nRMSE_pw={full_map['GP on true obs'][0]:.4f}, RMSE_pw={full_map['GP on true obs'][1]:.4f} m, range={full_map['GP on true obs'][2]} to {full_map['GP on true obs'][3]}",
-        f"- GP on GRU preds: nRMSE_pw={full_map['GP on GRU preds'][0]:.4f}, RMSE_pw={full_map['GP on GRU preds'][1]:.4f} m, range={full_map['GP on GRU preds'][2]} to {full_map['GP on GRU preds'][3]}",
-        f"- Joint training GRU + GP: nRMSE_pw={full_map['Joint training GRU + GP'][0]:.4f}, RMSE_pw={full_map['Joint training GRU + GP'][1]:.4f} m, range={full_map['Joint training GRU + GP'][2]} to {full_map['Joint training GRU + GP'][3]}",
-        'Strict common-slice table metrics for reference:',
-        f"- Global GRU: nRMSE_pw={common_map['Global GRU'][0]:.4f}, RMSE_pw={common_map['Global GRU'][1]:.4f} m",
-        f"- GP on true obs: nRMSE_pw={common_map['GP on true obs'][0]:.4f}, RMSE_pw={common_map['GP on true obs'][1]:.4f} m",
-        f"- GP on GRU preds: nRMSE_pw={common_map['GP on GRU preds'][0]:.4f}, RMSE_pw={common_map['GP on GRU preds'][1]:.4f} m",
-        f"- Joint training GRU + GP: nRMSE_pw={common_map['Joint training GRU + GP'][0]:.4f}, RMSE_pw={common_map['Joint training GRU + GP'][1]:.4f} m",
-    ])
-    note_path = OUT_TXT / 'slide_table_rmse_per_horizon_all16_same_runs_note.md'
-    note_path.write_text(note + '\n', encoding='utf-8')
-
-    print(fig_all)
-    print(fig_no_gru)
-    print(note_path)
+    print('Done.')
+    for _, row in summary.iterrows():
+        print(f"  {row['model']}: nRMSE_pw={row['median_nrmse_per_well']:.4f}, RMSE_pw={row['median_rmse_per_well_m']:.4f} m, {row['min_date']} to {row['max_date']}")
 
 
 if __name__ == '__main__':
