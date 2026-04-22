@@ -34,6 +34,7 @@ def main():
     parser.add_argument("--config", default="configs/gp/gp.yaml")
     parser.add_argument("--horizons", type=int, default=16)
     parser.add_argument("--out", default=None)
+    parser.add_argument("--ref-pred-path", default=None)
     args = parser.parse_args()
 
     gp_cfg = _load_yaml(ROOT / args.config)
@@ -67,6 +68,13 @@ def main():
     gws["datum"] = pd.to_datetime(gws["datum"])
 
     train_obs = gws[gws["id"].isin(train_ids)].dropna(subset=["gws"]).copy()
+
+    if args.ref_pred_path:
+        ref = pq.read_table(args.ref_pred_path, columns=["datum"]).to_pandas()
+        ref["datum"] = pd.to_datetime(ref["datum"])
+        ref_dates = set(ref["datum"].unique())
+        train_obs = train_obs[train_obs["datum"].isin(ref_dates)]
+        print(f"Filtered to {len(ref_dates)} reference dates ({len(train_obs)} rows remaining)")
 
     horizons = list(range(1, args.horizons + 1))
     rows = []
