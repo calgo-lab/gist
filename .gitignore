@@ -16,3 +16,16 @@ src/scripts/joint/spatial/custom_gp/
 
 logs/
 **/logs/
+
+# Large binary model/data files
+*.pt
+*.parquet
+*.db
+
+# Generated/temp presentation assets
+reports/presentation_assets/tmp/
+
+# Python packaging
+*.egg-info/
+dist/
+build/
