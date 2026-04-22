@@ -1,0 +1,33 @@
+model,horizon,median_rmse_per_well,n_wells,source
+Global GRU,2,0.0301322086030771,52,cluster: outputs/GRU_FCOV/GRU_FCOV_in52_out16_ep50_bs4096_seed40_full_merged_all_train/predictions/pred.parquet
+Global GRU,3,0.0439217885620157,52,cluster: outputs/GRU_FCOV/GRU_FCOV_in52_out16_ep50_bs4096_seed40_full_merged_all_train/predictions/pred.parquet
+Global GRU,4,0.0346275732833101,52,cluster: outputs/GRU_FCOV/GRU_FCOV_in52_out16_ep50_bs4096_seed40_full_merged_all_train/predictions/pred.parquet
+Global GRU,7,0.0576033379286156,52,cluster: outputs/GRU_FCOV/GRU_FCOV_in52_out16_ep50_bs4096_seed40_full_merged_all_train/predictions/pred.parquet
+Global GRU,8,0.0573484390300453,52,cluster: outputs/GRU_FCOV/GRU_FCOV_in52_out16_ep50_bs4096_seed40_full_merged_all_train/predictions/pred.parquet
+Global GRU,11,0.0691338391009593,52,cluster: outputs/GRU_FCOV/GRU_FCOV_in52_out16_ep50_bs4096_seed40_full_merged_all_train/predictions/pred.parquet
+Global GRU,12,0.0688205018992439,52,cluster: outputs/GRU_FCOV/GRU_FCOV_in52_out16_ep50_bs4096_seed40_full_merged_all_train/predictions/pred.parquet
+Global GRU,16,0.0781827159593615,52,cluster: outputs/GRU_FCOV/GRU_FCOV_in52_out16_ep50_bs4096_seed40_full_merged_all_train/predictions/pred.parquet
+GP on true obs,2,0.458365568267192,52,cluster: outputs/gp/GRU_FCOV_oracle_rmd90_test52__oracle_hpo_t020_ni128_ps200_j1e-03__predobstrain/gp_pred.parquet
+GP on true obs,3,0.4764181309860527,52,cluster: outputs/gp/GRU_FCOV_oracle_rmd90_test52__oracle_hpo_t020_ni128_ps200_j1e-03__predobstrain/gp_pred.parquet
+GP on true obs,4,0.4700713874105746,52,cluster: outputs/gp/GRU_FCOV_oracle_rmd90_test52__oracle_hpo_t020_ni128_ps200_j1e-03__predobstrain/gp_pred.parquet
+GP on true obs,7,0.4724220842402152,52,cluster: outputs/gp/GRU_FCOV_oracle_rmd90_test52__oracle_hpo_t020_ni128_ps200_j1e-03__predobstrain/gp_pred.parquet
+GP on true obs,8,0.4609923333208846,52,cluster: outputs/gp/GRU_FCOV_oracle_rmd90_test52__oracle_hpo_t020_ni128_ps200_j1e-03__predobstrain/gp_pred.parquet
+GP on true obs,11,0.47274114676249,52,cluster: outputs/gp/GRU_FCOV_oracle_rmd90_test52__oracle_hpo_t020_ni128_ps200_j1e-03__predobstrain/gp_pred.parquet
+GP on true obs,12,0.4383768067312526,52,cluster: outputs/gp/GRU_FCOV_oracle_rmd90_test52__oracle_hpo_t020_ni128_ps200_j1e-03__predobstrain/gp_pred.parquet
+GP on true obs,16,0.4793497648461305,52,cluster: outputs/gp/GRU_FCOV_oracle_rmd90_test52__oracle_hpo_t020_ni128_ps200_j1e-03__predobstrain/gp_pred.parquet
+GP on GRU preds,2,0.4497561034066856,52,cluster: outputs/gp/GRU_FCOV_in52_out16_ep50_bs8192_seed40_full_merged_test52_hpo_sep_t118__hpo_sep_t118__predobstrain/gp_pred.parquet
+GP on GRU preds,3,0.4540717966839666,52,cluster: outputs/gp/GRU_FCOV_in52_out16_ep50_bs8192_seed40_full_merged_test52_hpo_sep_t118__hpo_sep_t118__predobstrain/gp_pred.parquet
+GP on GRU preds,4,0.4957384882498918,52,cluster: outputs/gp/GRU_FCOV_in52_out16_ep50_bs8192_seed40_full_merged_test52_hpo_sep_t118__hpo_sep_t118__predobstrain/gp_pred.parquet
+GP on GRU preds,7,0.458016761445679,52,cluster: outputs/gp/GRU_FCOV_in52_out16_ep50_bs8192_seed40_full_merged_test52_hpo_sep_t118__hpo_sep_t118__predobstrain/gp_pred.parquet
+GP on GRU preds,8,0.4742257746287074,52,cluster: outputs/gp/GRU_FCOV_in52_out16_ep50_bs8192_seed40_full_merged_test52_hpo_sep_t118__hpo_sep_t118__predobstrain/gp_pred.parquet
+GP on GRU preds,11,0.4593607338454418,52,cluster: outputs/gp/GRU_FCOV_in52_out16_ep50_bs8192_seed40_full_merged_test52_hpo_sep_t118__hpo_sep_t118__predobstrain/gp_pred.parquet
+GP on GRU preds,12,0.4730699184624812,52,cluster: outputs/gp/GRU_FCOV_in52_out16_ep50_bs8192_seed40_full_merged_test52_hpo_sep_t118__hpo_sep_t118__predobstrain/gp_pred.parquet
+GP on GRU preds,16,0.5021253974178965,52,cluster: outputs/gp/GRU_FCOV_in52_out16_ep50_bs8192_seed40_full_merged_test52_hpo_sep_t118__hpo_sep_t118__predobstrain/gp_pred.parquet
+Joint training GRU + GP,2,0.5056661306589805,52,cluster: outputs/GRU_GP_JOINT/GRU_GP_JOINT_0260/eval/test/gp_pred.parquet
+Joint training GRU + GP,3,0.5207979720214422,52,cluster: outputs/GRU_GP_JOINT/GRU_GP_JOINT_0260/eval/test/gp_pred.parquet
+Joint training GRU + GP,4,0.4761013922706276,52,cluster: outputs/GRU_GP_JOINT/GRU_GP_JOINT_0260/eval/test/gp_pred.parquet
+Joint training GRU + GP,7,0.5386334837771442,52,cluster: outputs/GRU_GP_JOINT/GRU_GP_JOINT_0260/eval/test/gp_pred.parquet
+Joint training GRU + GP,8,0.5426864366794961,52,cluster: outputs/GRU_GP_JOINT/GRU_GP_JOINT_0260/eval/test/gp_pred.parquet
+Joint training GRU + GP,11,0.5622371137212023,52,cluster: outputs/GRU_GP_JOINT/GRU_GP_JOINT_0260/eval/test/gp_pred.parquet
+Joint training GRU + GP,12,0.5595473387352212,52,cluster: outputs/GRU_GP_JOINT/GRU_GP_JOINT_0260/eval/test/gp_pred.parquet
+Joint training GRU + GP,16,0.5788564090337975,52,cluster: outputs/GRU_GP_JOINT/GRU_GP_JOINT_0260/eval/test/gp_pred.parquet

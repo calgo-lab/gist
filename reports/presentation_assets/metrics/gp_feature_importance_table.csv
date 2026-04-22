@@ -1,0 +1,10 @@
+feature_group,best_tested_setup,best_nrmse_pw,delta_vs_coords,verdict,takeaway,delta_vs_coords_str,best_nrmse_pw_str
+Coordinates only,x/y only,1.7831,0.0,Baseline,Reference point,+0.000,1.783
+Best metadata combination,SIWA + hydrogeological zone + aquifer condition,1.176,-0.6071,Best overall,Use this,-0.607,1.176
+Groundwater residence time,SIWA only,1.7313,-0.0518,Helpful alone,Main driver in combinations,-0.052,1.731
+Hydrogeological zone,Zone only,1.5776,-0.2055,Important,Strong spatial context,-0.205,1.578
+Aquifer condition,Confined vs unconfined only,1.6548,-0.1283,Useful,Adds modest gain,-0.128,1.655
+Autocorrelation class,Best case: SIWA + acf_class,1.8954,0.1123,Hurts,Do not use,+0.112,1.895
+Groundwater level class,gwlk only,2.4942,0.7111,Hurts,Do not use,+0.711,2.494
+Precipitation-response features,Best case: pr1lag only,2.093,0.3099,Hurts to catastrophic,Not useful as spatial covariates,+0.310,2.093
+Well screen depths,Best case: SIWA + zone + confinement + fok,3.6766,1.8935,Catastrophic,Strongly avoid,+1.893,3.677
