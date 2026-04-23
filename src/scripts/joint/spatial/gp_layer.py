@@ -1,14 +1,109 @@
 from __future__ import annotations
 
+import math
 
-def make_gp_layer(backend="gpytorch", **kwargs):
-    backend = str(backend).strip().lower()
-    if backend == "gpytorch":
-        from gp_layer_gpytorch import SVGPLayer
-        accepted = {
-            "n_spatial_dims", "n_inducing", "nu", "jitter",
-            "use_float64", "init_noise", "noise_min", "noise_max",
-            "mean_type",
-        }
-        return SVGPLayer(**{k: v for k, v in kwargs.items() if k in accepted})
-    raise ValueError(f"Unknown GP backend: {backend!r}. Only 'gpytorch' is supported.")
+import torch
+import torch.nn as nn
+
+import gpytorch
+from gpytorch.constraints import Interval
+from gpytorch.kernels import MaternKernel, ScaleKernel
+from gpytorch.likelihoods import GaussianLikelihood
+
+
+class GPLayer(nn.Module):
+    def __init__(self, n_spatial_dims=2, nu=1.5, jitter=1e-4,
+                 use_float64=True, init_noise=0.1, noise_min=1e-4, noise_max=2.0):
+        super().__init__()
+        self.n_spatial_dims = n_spatial_dims
+        self.jitter = float(jitter)
+        self.use_float64 = bool(use_float64)
+        self._work_dtype = torch.float64 if use_float64 else torch.float32
+
+        self.covar_module = ScaleKernel(
+            MaternKernel(
+                nu=nu,
+                ard_num_dims=n_spatial_dims,
+                lengthscale_constraint=Interval(0.05, 20.0),
+            ),
+            outputscale_constraint=Interval(0.05, 20.0),
+        )
+        self.likelihood = GaussianLikelihood(noise_constraint=Interval(noise_min ** 2, noise_max ** 2))
+
+        with torch.no_grad():
+            lo = noise_min ** 2 + 1e-8
+            hi = noise_max ** 2 - 1e-8
+            self.likelihood.noise = torch.tensor(init_noise ** 2).clamp(lo, hi)
+            self.covar_module.base_kernel.lengthscale = torch.ones(1, n_spatial_dims)
+            self.covar_module.outputscale = torch.tensor(1.0)
+
+        if use_float64:
+            self.covar_module = self.covar_module.double()
+            self.likelihood = self.likelihood.double()
+
+    def forward(self, X_train, y_train, X_test):
+        dt = self._work_dtype
+        y_pred, _ = self._exact_gp(X_train.to(dt), y_train.to(dt), X_test.to(dt), want_var=False)
+        return y_pred.to(torch.float32)
+
+    def forward_with_std(self, X_train, y_train, X_test):
+        dt = self._work_dtype
+        y_pred, y_std = self._exact_gp(X_train.to(dt), y_train.to(dt), X_test.to(dt), want_var=True)
+        return y_pred.to(torch.float32), y_std.to(torch.float32)
+
+    def marginal_log_likelihood(self, X, y):
+        dt = self._work_dtype
+        X = X.to(dt)
+        y = y.to(dt)
+        n = y.size(0)
+        with gpytorch.settings.debug(False):
+            K = self.covar_module(X).evaluate().to(dt)
+        noise_var = self.likelihood.noise.to(dt)
+        reg = (noise_var + self.jitter) * torch.eye(n, dtype=dt, device=K.device)
+        K_reg = 0.5 * (K + K.T) + reg
+        L = self._chol_safe(K_reg)
+        alpha = torch.cholesky_solve(y.unsqueeze(-1), L).squeeze(-1)
+        return 0.5 * (y * alpha).sum() + L.diagonal().log().sum() + 0.5 * n * math.log(2 * math.pi)
+
+    def length_scale(self):
+        return self.covar_module.base_kernel.lengthscale.detach().squeeze()
+
+    def output_scale(self):
+        return self.covar_module.outputscale.detach().squeeze()
+
+    def noise(self):
+        return self.likelihood.noise.detach().sqrt().squeeze()
+
+    def _exact_gp(self, X_tr, y_tr, X_te, want_var):
+        dt = X_tr.dtype
+        n = y_tr.size(0)
+        with gpytorch.settings.debug(False):
+            K_tt = self.covar_module(X_tr).evaluate().to(dt)
+            K_st = self.covar_module(X_te, X_tr).evaluate().to(dt)
+            if want_var:
+                K_ss_diag = self.covar_module(X_te).evaluate().to(dt).diag()
+        noise_var = self.likelihood.noise.to(dt)
+        reg = (noise_var + self.jitter) * torch.eye(n, dtype=dt, device=K_tt.device)
+        K_reg = 0.5 * (K_tt + K_tt.T) + reg
+        L = self._chol_safe(K_reg)
+        alpha = torch.cholesky_solve(y_tr.unsqueeze(-1), L).squeeze(-1)
+        y_pred = K_st @ alpha
+        if not want_var:
+            return y_pred, None
+        v = torch.linalg.solve_triangular(L, K_st.T, upper=False)
+        return y_pred, (K_ss_diag - (v * v).sum(0)).clamp(min=0.0).sqrt()
+
+    def _chol_safe(self, K):
+        jitter = self.jitter
+        for _ in range(12):
+            try:
+                return torch.linalg.cholesky(K)
+            except RuntimeError:
+                K = K + jitter * torch.eye(K.size(0), dtype=K.dtype, device=K.device)
+                jitter *= 10.0
+        raise RuntimeError(
+            f"GPLayer: Cholesky failed after 12 jitter retries "
+            f"(final jitter={jitter:.2e}, K range=[{K.min():.3g},{K.max():.3g}])"
+        )
+
+
