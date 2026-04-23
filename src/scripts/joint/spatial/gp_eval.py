@@ -23,7 +23,7 @@ from sklearn.preprocessing import StandardScaler
 
 from libs.spatial_split import resolve_split_path
 from libs.run_registry import lookup_run_id, read_registry
-from gp_layer import make_gp_layer
+from gp_layer import GPLayer
 
 
 def _load_yaml(path):
@@ -74,7 +74,7 @@ def pretrain_mll_kernel(gp, X_train, y_train, n_steps=200, lr=1e-2, max_train_pt
     start_nz = float(gp.noise().detach().float().view(-1)[0])
 
     cur_lr = float(lr)
-    params = list(gp.svgp.covar_module.parameters()) + list(gp.likelihood.parameters())
+    params = list(gp.covar_module.parameters()) + list(gp.likelihood.parameters())
     opt = torch.optim.Adam(params, lr=cur_lr)
     steps_ok = 0
 
@@ -138,11 +138,8 @@ def main():
     parser.add_argument("--max-pretrain-pts", type=int, default=None)
     parser.add_argument("--date-freq", default=None)
     parser.add_argument("--jitter", type=float, default=None)
-    parser.add_argument("--backend", default=None)
-    parser.add_argument("--n-inducing", type=int, default=None)
     parser.add_argument("--variational-lr", type=float, default=None)
     parser.add_argument("--use-float64", default=None)
-    parser.add_argument("--mean-type", default=None)
 
     config_args, _ = parser.parse_known_args()
     gp_cfg = _load_yaml(ROOT / config_args.config)
@@ -155,11 +152,8 @@ def main():
         max_pretrain_pts = int(gp_cfg.get("max_pretrain_pts", 2000)),
         date_freq        = str(gp_cfg.get("date_freq",        "ME")),
         jitter           = float(gp_cfg.get("jitter",         1e-5)),
-        backend          = str(gp_cfg.get("backend",          "gpytorch")),
-        n_inducing       = int(gp_cfg.get("n_inducing",       64)),
         variational_lr   = float(gp_cfg.get("variational_lr", 1e-2)),
         use_float64      = str(gp_cfg.get("use_float64",      True)).lower(),
-        mean_type        = str(gp_cfg.get("mean_type",        "zero")),
     )
     args = parser.parse_args()
 
@@ -197,11 +191,8 @@ def main():
             gru_run_sig = f"in{in_len}_out{out_len}_ep{epochs}_bs{bs}_seed{seed}_{dataset}_spf{spf}_sc{sc_cnt}_ss{ss}"
 
     model_prefix = str(args.model_prefix).strip()
-    backend      = str(args.backend).strip().lower()
-    n_inducing   = int(args.n_inducing)
     variational_lr = float(args.variational_lr)
     use_float64  = _as_bool(args.use_float64)
-    mean_type    = str(args.mean_type).strip().lower()
     if args.pred_path:
         pred_path = Path(args.pred_path)
     else:
@@ -283,10 +274,9 @@ def main():
         pred_h = pred[pred["horizon"] == h]
         train_pred_h = pred_h[pred_h["id"].isin(train_ids)].dropna(subset=["x_25833", "y_25833", "gws_pred"])
 
-        gp = make_gp_layer(
-            backend=backend, n_spatial_dims=n_dims,
-            jitter=args.jitter, n_inducing=n_inducing, use_float64=use_float64,
-            mean_type=mean_type,
+        gp = GPLayer(
+            n_spatial_dims=n_dims,
+            jitter=args.jitter, use_float64=use_float64,
         ).to(device)
 
         if train_pred_h.empty:
@@ -297,7 +287,7 @@ def main():
                 dtype=torch.float32, device=device
             )
             y_all = torch.tensor(train_pred_h["gws_pred"].to_numpy(), dtype=torch.float32, device=device)
-            print(f"  horizon {h}: pre-training GP kernel ({args.pretrain_steps} steps, backend={backend}) on {X_all.size(0)} pts ...")
+            print(f"  horizon {h}: pre-training GP kernel ({args.pretrain_steps} steps) on {X_all.size(0)} pts ...")
 
             pretrain_stats = pretrain_mll_kernel(
                 gp, X_all, y_all, n_steps=args.pretrain_steps,
@@ -315,9 +305,9 @@ def main():
             nz  = float(gp.noise().detach().float().view(-1)[0].item())
             if not np.isfinite(ls) or not np.isfinite(os_) or not np.isfinite(nz):
                 print("    non-finite GP hyperparams after pretrain; re-init GP without pretrain for this horizon")
-                gp = make_gp_layer(
-                    backend=backend, n_spatial_dims=n_dims,
-                    jitter=args.jitter, n_inducing=n_inducing, use_float64=use_float64,
+                gp = GPLayer(
+                    n_spatial_dims=n_dims,
+                    jitter=args.jitter, use_float64=use_float64,
                 ).to(device)
                 ls  = float(gp.length_scale().detach().float().view(-1)[0].item())
                 os_ = float(gp.output_scale().detach().float().view(-1)[0].item())
