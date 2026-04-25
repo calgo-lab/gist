@@ -29,7 +29,7 @@ for _p in [
 from libs.spatial_split import resolve_split_path, load_or_create_split
 from libs.run_registry import assign_run_id
 from gru_model import GRUSeq2Seq
-from gp_layer import make_gp_layer
+from gp_layer import GPLayer
 
 STATIC_FEATURE_REGEX = (
     "eumohp_(.+)_(.+)_(.*[1])"
@@ -179,11 +179,8 @@ def _pretrain_gp_kernels(gp_models, gru_model, x_past, x_future, x_static, meta,
         else:
             X_s, y_s = X_all, y_all
 
-        if hasattr(gp, "initialize_inducing"):
-            gp.initialize_inducing(X_s)
-
         gp.train()
-        params = list(gp.svgp.covar_module.parameters()) + list(gp.likelihood.parameters())
+        params = list(gp.covar_module.parameters()) + list(gp.likelihood.parameters())
         opt = torch.optim.Adam(params, lr=lr)
 
         steps_ok = 0
@@ -257,8 +254,6 @@ def main():
     gp_features = list(gp_cfg.get("gp_features", []))
     gp_features_onehot = list(gp_cfg.get("gp_features_onehot", []))
 
-    backend = str(gp_cfg.get("backend", "gpytorch")).strip().lower()
-    n_inducing = int(gp_cfg.get("n_inducing", 64))
     jitter = float(gp_cfg.get("jitter", 1e-4))
     use_float64 = bool(gp_cfg.get("use_float64", True))
     init_noise = float(gp_cfg.get("init_noise", 0.1))
@@ -440,8 +435,8 @@ def main():
             print(f"Warning: pretrained GRU not found at {ckpt_path}, training from scratch.")
 
     gp_models = [
-        make_gp_layer(
-            backend=backend, n_spatial_dims=2 + n_feature_dims, n_inducing=n_inducing,
+        GPLayer(
+            n_spatial_dims=2 + n_feature_dims,
             jitter=jitter, use_float64=use_float64, init_noise=init_noise,
         ).to(device)
         for _ in range(out_len)
@@ -661,8 +656,7 @@ def main():
             "split_file": str(spatial_cfg.get("file", "")),
             "hidden_size": hidden_size, "num_layers": num_layers,
             "dropout": dropout, "gru_lr": gru_lr, "gp_lr": gp_lr,
-            "lambda_spatial": lambda_spatial, "backend": backend,
-            "n_inducing": n_inducing,
+            "lambda_spatial": lambda_spatial,
         },
     )
     run_dir = ROOT / "outputs" / "GRU_GP_JOINT" / f"GRU_GP_JOINT_{run_id}"
@@ -687,7 +681,7 @@ def main():
         {
             "gp_state_dicts": {h: best_gp_states[h] for h in range(out_len)},
             "gp_config": {
-                "backend": backend, "n_inducing": n_inducing, "jitter": jitter,
+                "jitter": jitter,
                 "use_float64": use_float64, "init_noise": init_noise, "out_len": out_len,
                 "n_spatial_dims": 2 + n_feature_dims,
                 "gp_features": gp_features,
@@ -713,7 +707,7 @@ def main():
         "best_val_combined": float(best_val) if best_val is not None else None,
         "hidden_size": hidden_size, "num_layers": num_layers, "dropout": dropout,
         "gru_lr": gru_lr, "gp_lr": gp_lr, "grad_clip": grad_clip,
-        "lambda_spatial": lambda_spatial, "backend": backend, "n_inducing": n_inducing,
+        "lambda_spatial": lambda_spatial,
         "n_static": len(static_cols), "spatial_train_wells": len(train_ids),
         "spatial_val_wells": len(val_ids), "spatial_test_wells": len(test_ids),
         "early_stopping": {"patience": es_patience, "min_delta": es_min_delta},

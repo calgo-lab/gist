@@ -29,7 +29,7 @@ for _p in [
 from libs.spatial_split import resolve_split_path
 from libs.run_registry import lookup_run_id
 from gru_model import GRUSeq2Seq
-from gp_layer import make_gp_layer
+from gp_layer import GPLayer
 
 STATIC_FEATURE_REGEX = (
     "eumohp_(.+)_(.+)_(.*[1])"
@@ -269,10 +269,8 @@ def main():
 
     gp_models = []
     for h in range(out_len):
-        gp = make_gp_layer(
-            backend=gp_config["backend"],
+        gp = GPLayer(
             n_spatial_dims=gp_config.get("n_spatial_dims", 2),
-            n_inducing=gp_config["n_inducing"],
             jitter=gp_config["jitter"],
             use_float64=gp_config["use_float64"],
             init_noise=gp_config["init_noise"],
