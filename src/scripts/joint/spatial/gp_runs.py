@@ -50,7 +50,7 @@ def default_gru_sig(gru_cfg):
 
 def run_gp(gru_run_sig, gp_run_tag, pretrain_steps, pretrain_lr, max_pretrain_pts,
            date_freq, jitter,
-           backend="gpytorch", n_inducing=64, variational_lr=1e-2, use_float64=True,
+           variational_lr=1e-2, use_float64=True,
            model_prefix="GRU_FCOV"):
     cmd = [
         PY, str(GP_EVAL),
@@ -61,8 +61,6 @@ def run_gp(gru_run_sig, gp_run_tag, pretrain_steps, pretrain_lr, max_pretrain_pt
         "--max-pretrain-pts", str(int(max_pretrain_pts)),
         "--date-freq", str(date_freq),
         "--jitter", str(float(jitter)),
-        "--backend", str(backend),
-        "--n-inducing", str(int(n_inducing)),
         "--variational-lr", str(float(variational_lr)),
         "--use-float64", str(use_float64).lower(),
         "--model-prefix", str(model_prefix),
@@ -135,8 +133,6 @@ def main():
         max_pretrain_pts = int(cfg.get("max_pretrain_pts", 2000))
         date_freq = str(cfg.get("date_freq", "ME"))
         jitter = float(cfg.get("jitter", 1e-5))
-        backend = str(cfg.get("backend", "gpytorch"))
-        n_inducing = int(cfg.get("n_inducing", 64))
         variational_lr = float(cfg.get("variational_lr", 1e-2))
         use_float64 = cfg.get("use_float64", True)
         model_prefix = str(cfg.get("model_prefix", "GRU_FCOV"))
@@ -149,7 +145,7 @@ def main():
             run_dir = run_gp(
                 gru_run_sig, gp_run_tag, pretrain_steps, pretrain_lr, max_pretrain_pts,
                 date_freq, jitter,
-                backend=backend, n_inducing=n_inducing, variational_lr=variational_lr,
+                variational_lr=variational_lr,
                 use_float64=use_float64, model_prefix=model_prefix,
             )
             obj = read_metric(run_dir, metric_name)

@@ -21,7 +21,7 @@ for _p in [str(SRC_ROOT), str(SCRIPT_DIR)]:
 
 from libs.spatial_split import resolve_split_path
 from libs.run_registry import lookup_run_id
-from gp_layer import make_gp_layer
+from gp_layer import GPLayer
 
 
 def _load_yaml(path):
@@ -64,7 +64,7 @@ def pretrain_mll_kernel(gp, X_train, y_train, n_steps=200, lr=1e-2, max_train_pt
     y_s = y_s.detach().to(device)
 
     cur_lr = float(lr)
-    params = list(gp.svgp.covar_module.parameters()) + list(gp.likelihood.parameters())
+    params = list(gp.covar_module.parameters()) + list(gp.likelihood.parameters())
     opt = torch.optim.Adam(params, lr=cur_lr)
     steps_ok = 0
 
@@ -115,8 +115,6 @@ def main():
     parser.add_argument("--max-pretrain-pts", type=int, default=2000)
     parser.add_argument("--date-freq", default="ME")
     parser.add_argument("--jitter", type=float, default=1e-4)
-    parser.add_argument("--backend", default="gpytorch")
-    parser.add_argument("--n-inducing", type=int, default=256)
     parser.add_argument("--use-float64", default="true")
     args = parser.parse_args()
 
@@ -223,9 +221,9 @@ def main():
         ).copy()
         train_pred_h["residual"] = train_pred_h["gws"] - train_pred_h["gws_forecast"]
 
-        gp = make_gp_layer(
-            backend=args.backend, n_spatial_dims=n_dims,
-            jitter=args.jitter, n_inducing=args.n_inducing, use_float64=use_float64,
+        gp = GPLayer(
+            n_spatial_dims=n_dims,
+            jitter=args.jitter, use_float64=use_float64,
         ).to(device)
 
         if not train_pred_h.empty:
