@@ -1,10 +1,16 @@
 from pathlib import Path
 import argparse
+import os
 import pickle
 import re
 import sys
 import time
 from collections import defaultdict
+
+try:
+    import wandb as _wandb
+except ImportError:
+    _wandb = None
 
 import numpy as np
 import pandas as pd
@@ -380,6 +386,8 @@ def main():
     if gp_features or gp_features_onehot:
         meta_path = Path(data_cfg.get("metadata_path", ""))
         meta_df = pd.read_csv(meta_path, sep=";")[["id"] + gp_features + gp_features_onehot].drop_duplicates("id")
+        for _f in gp_features:
+            meta_df[_f] = meta_df[_f].fillna(meta_df[_f].median())
         cont_vals = meta_df[gp_features].values.astype(np.float32) if gp_features else np.zeros((len(meta_df), 0), dtype=np.float32)
         if gp_features:
             feat_scaler = StandardScaler()
@@ -461,6 +469,31 @@ def main():
     trained_epochs = 0
     best_gru_state = model.state_dict()
     best_gp_states = [gp.state_dict() for gp in gp_models]
+
+    _run_sig_early = _resolve_joint_run_sig(
+        gru_cfg=gru_cfg, dataset=dataset, in_len=in_len, out_len=out_len,
+        n_epochs=n_epochs, seed=seed,
+        spatial_fraction=spatial_fraction, spatial_clusters=spatial_clusters,
+        spatial_seed=spatial_seed, lambda_spatial=lambda_spatial,
+    )
+    if _wandb is not None:
+        _wandb_mode = os.getenv("WANDB_MODE", "online" if os.getenv("WANDB_API_KEY") else "disabled")
+        _wandb.init(
+            project=os.getenv("WANDB_PROJECT", "gwl-interpolation"),
+            entity=os.getenv("WANDB_ENTITY") or None,
+            name=_run_sig_early,
+            mode=_wandb_mode,
+            config={
+                "pipeline": "joint",
+                "dataset": dataset, "in_len": in_len, "out_len": out_len,
+                "seed": seed, "n_epochs": n_epochs,
+                "hidden_size": hidden_size, "num_layers": num_layers, "dropout": dropout,
+                "gru_lr": gru_lr, "gp_lr": gp_lr,
+                "lambda_spatial": lambda_spatial,
+                "spatial_fraction": spatial_fraction, "spatial_seed": spatial_seed,
+            },
+            tags=["gru_gp", "joint"],
+        )
 
     # Loop through epochs
     for epoch in range(1, n_epochs + 1):
@@ -628,6 +661,9 @@ def main():
             f"val_combined={val_combined:.5f}  "
             f"time={time.time() - t_epoch:.1f}s"
         )
+        if _wandb is not None:
+            _wandb.log({"epoch": epoch, "train_gru": train_gru, "train_gp": train_gp,
+                        "val_gru": val_gru, "val_gp": val_gp, "val_combined": val_combined})
 
         improved = best_val is None or val_combined < best_val - es_min_delta
         if improved:
@@ -717,6 +753,9 @@ def main():
 
     print(f"\nSaved joint model to {run_dir}")
     print(f"Best epoch: {best_epoch}  |  Best val combined: {best_val:.5f}")
+    if _wandb is not None:
+        _wandb.summary.update({"best_val_combined": best_val, "trained_epochs": trained_epochs, "best_epoch": best_epoch, "run_id": run_id})
+        _wandb.finish()
 
 
 if __name__ == "__main__":

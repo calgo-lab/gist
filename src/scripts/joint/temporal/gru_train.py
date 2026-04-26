@@ -11,7 +11,13 @@ import pyarrow.parquet as pq
 import torch
 from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader, Dataset
+import os
 import yaml
+
+try:
+    import wandb as _wandb
+except ImportError:
+    _wandb = None
 
 ROOT = Path(__file__).resolve().parents[4]
 SRC_ROOT = ROOT / "src"
@@ -288,6 +294,30 @@ def main():
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=False)
     val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, drop_last=False)
 
+    _run_sig_early = _resolve_run_sig(
+        tft_cfg=gru_cfg, dataset=dataset, in_len=in_len, out_len=out_len,
+        n_epochs=n_epochs, batch_size=batch_size, seed=seed,
+        spatial_fraction=spatial_fraction, spatial_clusters=spatial_clusters,
+        spatial_seed=spatial_seed,
+    )
+    if _wandb is not None:
+        _wandb_mode = os.getenv("WANDB_MODE", "online" if os.getenv("WANDB_API_KEY") else "disabled")
+        _wandb.init(
+            project=os.getenv("WANDB_PROJECT", "gwl-interpolation"),
+            entity=os.getenv("WANDB_ENTITY") or None,
+            name=_run_sig_early,
+            mode=_wandb_mode,
+            config={
+                "pipeline": "decoupled_gru",
+                "dataset": dataset, "in_len": in_len, "out_len": out_len,
+                "seed": seed, "batch_size": batch_size, "n_epochs": n_epochs, "lr": lr,
+                "hidden_size": hidden_size, "num_layers": num_layers, "dropout": dropout,
+                "spatial_fraction": spatial_fraction, "spatial_seed": spatial_seed,
+                "split_type": spatial_split_type,
+            },
+            tags=["gru", "decoupled"],
+        )
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = GRUSeq2Seq(
         past_input_size=x_past_train.shape[-1],
@@ -347,6 +377,8 @@ def main():
         train_loss = float(np.mean(train_losses))
         val_loss = float(np.mean(val_losses))
         print(f"epoch={epoch} train_loss={train_loss:.6f} val_loss={val_loss:.6f} time={time.time() - t_epoch:.1f}s")
+        if _wandb is not None:
+            _wandb.log({"epoch": epoch, "train_loss": train_loss, "val_loss": val_loss})
 
         improved = (
             best_val is None
@@ -424,6 +456,9 @@ def main():
         "cov_cols": COV_COLS,
     }
     (run_dir / "meta.yaml").write_text(yaml.safe_dump(meta_out), encoding="utf-8")
+    if _wandb is not None:
+        _wandb.summary.update({"best_val_loss": best_val, "trained_epochs": trained_epochs, "best_epoch": best_epoch, "run_id": run_id})
+        _wandb.finish()
 
 
 if __name__ == "__main__":

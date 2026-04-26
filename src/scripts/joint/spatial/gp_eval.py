@@ -18,7 +18,14 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import torch
+import os
 import yaml
+
+try:
+    import wandb as _wandb
+except ImportError:
+    _wandb = None
+
 from sklearn.preprocessing import StandardScaler
 
 from libs.spatial_split import resolve_split_path
@@ -208,7 +215,26 @@ def main():
     split_path = resolve_split_path(ROOT / "splits", dataset, spatial_cfg)
     split = pd.read_csv(split_path)
     train_ids   = set(split.loc[split["spatial_split"] == "spatial_train", "id"])
-    holdout_ids = set(split.loc[split["spatial_split"] == "spatial_holdout", "id"])
+    holdout_ids = set(split.loc[split["spatial_split"].isin(["spatial_holdout", "spatial_test"]), "id"])
+
+    if _wandb is not None:
+        _wandb_mode = os.getenv("WANDB_MODE", "online" if os.getenv("WANDB_API_KEY") else "disabled")
+        _wandb.init(
+            project=os.getenv("WANDB_PROJECT", "gwl-interpolation"),
+            entity=os.getenv("WANDB_ENTITY") or None,
+            name=f"{gru_run_sig}__{args.gp_run_tag}",
+            mode=_wandb_mode,
+            config={
+                "pipeline": "decoupled_gp",
+                "gru_run_sig": gru_run_sig,
+                "gp_run_tag": args.gp_run_tag,
+                "pretrain_steps": args.pretrain_steps,
+                "jitter": args.jitter,
+                "date_freq": args.date_freq,
+                "model_prefix": model_prefix,
+            },
+            tags=["gp", "decoupled"],
+        )
 
     if dataset == "sample":
         data_path = Path(data_cfg["sample_path"])
@@ -361,13 +387,21 @@ def main():
 
     per_id_nse_rows = []
     for well_id, g in out_df.groupby("id"):
+        pred_w = g["gws_forecast"].to_numpy()
+        true_w = g["gws_true"].to_numpy()
         per_id_nse_rows.append({
             "id": well_id,
-            "NSE_over_time": _nse(g["gws_forecast"].to_numpy(), g["gws_true"].to_numpy()),
+            "NSE_over_time":   _nse(pred_w, true_w),
+            "RMSE_over_time":  _rmse(pred_w, true_w),
+            "nRMSE_over_time": _nrmse(pred_w, true_w),
         })
     per_id_nse_df = pd.DataFrame(per_id_nse_rows)
-    per_id_valid = per_id_nse_df["NSE_over_time"].to_numpy(dtype=float) if not per_id_nse_df.empty else np.array([])
+    per_id_valid = per_id_nse_df["NSE_over_time"].to_numpy(dtype=float)   if not per_id_nse_df.empty else np.array([])
+    per_id_rmse  = per_id_nse_df["RMSE_over_time"].to_numpy(dtype=float)  if not per_id_nse_df.empty else np.array([])
+    per_id_nrmse = per_id_nse_df["nRMSE_over_time"].to_numpy(dtype=float) if not per_id_nse_df.empty else np.array([])
     per_id_valid = per_id_valid[np.isfinite(per_id_valid)]
+    per_id_rmse  = per_id_rmse[np.isfinite(per_id_rmse)]
+    per_id_nrmse = per_id_nrmse[np.isfinite(per_id_nrmse)]
 
     overall_metrics = {
         "RMSE":          _rmse(pred_all, real_all),
@@ -384,6 +418,9 @@ def main():
         "AbsErr_P95":    float(np.percentile(abs_err, 95)) if abs_err.size else float("nan"),
         "AbsErr_P99":    float(np.percentile(abs_err, 99)) if abs_err.size else float("nan"),
         "AbsErr_Max":    float(np.max(abs_err)) if abs_err.size else float("nan"),
+        "nRMSE_pw":      float(np.median(per_id_nrmse)) if per_id_nrmse.size else float("nan"),
+        "RMSE_pw":       float(np.median(per_id_rmse))  if per_id_rmse.size  else float("nan"),
+        "NSE_pw":        float(np.median(per_id_valid)) if per_id_valid.size  else float("nan"),
     }
 
     pair_rows = []
@@ -418,6 +455,9 @@ def main():
     print("Overall metrics:")
     for k, v in overall_metrics.items():
         print(f"  {k}: {v:.4f}" if isinstance(v, float) and not math.isnan(v) else f"  {k}: {v}")
+    if _wandb is not None:
+        _wandb.log({k: v for k, v in overall_metrics.items() if isinstance(v, (int, float)) and not math.isnan(float(v))})
+        _wandb.finish()
 
 
 if __name__ == "__main__":
