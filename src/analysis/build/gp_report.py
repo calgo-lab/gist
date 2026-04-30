@@ -15,7 +15,7 @@ reports/gp/metrics/gp_metrics_summary.csv
     One row per GP run. Columns: run_number, hpo_name, trial, objective,
     elapsed_s, model_prefix, gru_run_sig, gp_run_tag, split,
     RMSE, nRMSE, NSE_pooled, NSE_id_median, MAE,
-    backend, kernel, n_inducing, pretrain_steps, jitter,
+    kernel, pretrain_steps, jitter,
     max_pretrain_pts, variational_lr, isotropic, use_float64, dir_name.
 """
 from __future__ import annotations
@@ -35,7 +35,6 @@ KEEP_METRICS = ["RMSE", "nRMSE", "NSE_pooled", "NSE_id_median", "MAE"]
 METRIC_RENAME = {"RMSE": "RMSE_pooled", "MAE": "MAE_pooled"}
 
 HP_RENAME: dict[str, str] = {
-    "hp.backend": "backend",
     "hp.n_inducing": "n_inducing",
     "hp.pretrain_steps": "pretrain_steps",
     "hp.jitter": "jitter",
@@ -133,7 +132,7 @@ def build_metrics_table(runs_df, hpo_df):
 
     leading = ["run_number", "objective", "elapsed_s", "model_prefix"]
     metric_cols = ["RMSE_pooled", "nRMSE", "NSE_pooled", "NSE_id_median", "MAE_pooled"]
-    hp_keys = ["backend", "n_inducing", "pretrain_steps", "jitter", "max_pretrain_pts", "variational_lr"]
+    hp_keys = ["pretrain_steps", "jitter", "max_pretrain_pts", "variational_lr"]
     extra_hp = sorted(c for c in out.columns if c.startswith("hp."))
     trailing = ["hpo_name", "trial", "gru_run_sig", "gp_run_tag", "split", "dir_name"]
     ordered = (
