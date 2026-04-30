@@ -64,7 +64,8 @@ spec:
           cd /storage/gwl-interpolation
           git pull
 
-          # Generate deduplicated splits (skips files that already exist)
+          echo '=== Deduplication ==='
+          python cluster/scripts/preprocess_dedup.py
           echo '=== Generating splits ==='
           python cluster/scripts/generate_splits.py
 
