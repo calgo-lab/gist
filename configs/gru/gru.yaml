@@ -21,10 +21,9 @@ training:
     min_delta: 0.0001
     mode: min
 spatial_split:
-  split_seed: 42
+  split_type: random
   train_fraction: 0.9
+  split_seed: 42
   cluster_count: 10
   max_dist_k: 3
   max_dist_percentile: 25
-  split_seed: 42
-  split_type: random
