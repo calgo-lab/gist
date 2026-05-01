@@ -1,0 +1,22 @@
+# Decoupled Pipeline Flowchart — Code Pointers
+
+- 1040 wells · weekly GWL · 5 weather covariates · 27 static features → [`gru_train.py:91`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/temporal/gru_train.py#L91-L99)
+- Spatial split · spatial_train / spatial_test → [`gru_train.py:201–213`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/temporal/gru_train.py#L201-L213)
+- Temporal split · train ≤ 2016 / val 2016–2020 / test > 2020 → [`gru_train.py:246–247`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/temporal/gru_train.py#L246-L247)
+- Normalisation · per-well z-score + StandardScaler → [`gru_train.py:215–220`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/temporal/gru_train.py#L215-L220) and [`gru_train.py:117-118`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/temporal/gru_train.py#L117-L118)
+- Sliding window builder · 52-step past + 16-step future → [`gru_train.py:121–126`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/temporal/gru_train.py#L121-L126)
+- x_past (B,52,6) · x_future (B,16,5) · x_static (B,27) · y_future (B,16)
+- static_proj · Linear(27 → 256×4) → [`gru_model.py:25`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/temporal/gru_model.py#L25) and [`gru_model.py:31`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/temporal/gru_model.py#L31)
+- h₀ · one 256-dim vector per encoder layer → [`gru_model.py:32-33`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/temporal/gru_model.py#L32-L33)
+- Encoder GRU · 4 layers × 256 · 52 steps → [`gru_model.py:8–14`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/temporal/gru_model.py#L8-L14) and [`gru_model.py:34`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/temporal/gru_model.py#L34)
+- Decoder GRU · 4 layers × 256 · 16 steps → [`gru_model.py:15–21`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/temporal/gru_model.py#L15-L21) and [`gru_model.py:36`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/temporal/gru_model.py#L36)
+- Linear(256 → 1) · output head · 16 timesteps → [`gru_model.py:22`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/temporal/gru_model.py#L22)
+- MSE Loss · backprop · optimizer step → [`gru_train.py:301–302`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/temporal/gru_train.py#L301-L302)
+- Final predictions on temporal test set → [`gru_eval.py:251–258`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/temporal/gru_eval.py#L251-L258)
+- Denormalisation → [`gru_eval.py:260–265`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/temporal/gru_eval.py#L260-L265)
+- Forecast GWL · save pred.parquet → [`gru_eval.py:288–291`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/temporal/gru_eval.py#L288-L291)
+- GP features · siwa_verweilzeit_j · hydroraum · gw_gespannt · x/y coords
+- GP kernel pretraining · MLL → [`gp_eval.py:85`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/spatial/gp_eval.py#L85) Backprop → [`gp_eval.py:92`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/spatial/gp_eval.py#L92)Adam  → [`gp_eval.py:102`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/spatial/gp_eval.py#L102) 200 steps · once per horizon
+- Spatial GP · fit per horizon · predict at spatial_test wells → [`gp_eval.py:351`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/spatial/gp_eval.py#L351) and [`gp_layer.py:49-52`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/spatial/gp_layer.py#L49-L52) and [`gp_layer.py:81-82`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/spatial/gp_layer.py#L81-L82) and [`gp_layer.py:89-90`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/spatial/gp_layer.py#L89-L90)
+- GP posterior · 52 spatial_test wells
+- Evaluation · RMSE / nRMSE / NSE → [`gp_eval.py:382–397`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/spatial/gp_eval.py#L382-L397)

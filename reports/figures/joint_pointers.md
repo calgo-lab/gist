@@ -1,0 +1,8 @@
+# Joint Pipeline Flowchart — Code Pointers (joint-only steps)
+
+- Three-way spatial split · spatial_train / spatial_val / spatial_test → [`gru_gp_train.py:108–129`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/gru_gp_train.py#L108-L129)
+- Date-grouped batches · all spatial_train wells for one date per step (required for GP conditioning) → [`gru_gp_train.py:485-488`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/gru_gp_train.py#L485-L488) as opposed to random batching for the decoupled pipeline → [`gru_train.py:288-289`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/gru_train.py#L288-L289)
+- L_GP · mean over horizons of MSE at spatial_val → [`gru_gp_train.py:540-546`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/gru_gp_train.py#L540-L546)
+- L = L_GRU + λ · L_GP · λ = 0.034 → [`gru_gp_train.py:548-550`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/gru_gp_train.py#L548-L550) and [`gru_gp_train.py:498-500`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/gru_gp_train.py#L498-L500)
+- Backprop · gru_optimizer + gp_optimizer step → [`gru_gp_train.py:557–561`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/gru_gp_train.py#L557-L561)
+- Evaluation · RMSE / nRMSE / NSE → [`gru_gp_eval.py:380–393`](https://github.com/calgo-lab/gist/blob/main/src/scripts/joint/gru_gp_eval.py#L380-L393)
