@@ -29,3 +29,4 @@ reports/presentation_assets/tmp/
 *.egg-info/
 dist/
 build/
+reports/comparison/
