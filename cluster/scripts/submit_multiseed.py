@@ -22,6 +22,8 @@ DECOUPLED_GROUPS = [
     ("random", None, 0.80, [42, 43, 44, 45, 46]),
     # max_dist p10 ceiling — 1 split × 5 model seeds = 5
     ("max_dist", 10,  0.95, [42]),
+    # max_dist p50 — 5 splits × 5 model seeds = 25
+    ("max_dist", 50,  0.95, [42, 43, 44, 45, 46]),
     # max_dist p90 — 5 splits × 5 model seeds = 25
     ("max_dist", 90,  0.95, [42, 43, 44, 45, 46]),
     # max_dist p100 — 5 splits × 5 model seeds = 25
@@ -29,13 +31,16 @@ DECOUPLED_GROUPS = [
     # kmeans — 5 splits × 5 model seeds = 25
     ("kmeans",  None, 0.95, [42, 43, 44, 45, 46]),
 ]
-# Total decoupled: 100 + 5 + 25 + 25 + 25 = 180
+# Total decoupled: 100 + 5 + 25 + 25 + 25 + 25 = 205
 
 JOINT_GROUPS = [
     # max_dist p90 — 2 splits × 5 model seeds = 10
     ("max_dist", 90, 0.95, [42, 43]),
 ]
-# Grand total: 190
+
+# Global GRU: full_merged (1040 wells, no dedup), all wells in training, 10 seeds
+GLOBAL_GRU_SEEDS = [40, 41, 42, 43, 44, 45, 46, 47, 48, 49]
+# Grand total: 205 + 10 + 10 = 225
 
 DATASET = "full_merged_dedup"
 
@@ -157,8 +162,6 @@ def _decoupled_yaml(job_name, run_sig, split_type, pct, frac, ss, ms, wandb_key)
             --config $CFG \\
             --gru-run-sig {run_sig} \\
             --gp-run-tag ms \\
-            --backend gpytorch \\
-            --n-inducing 64 \\
             --pretrain-steps 300 \\
             --pretrain-lr 0.01 \\
             --max-pretrain-pts 2000 \\
@@ -170,6 +173,41 @@ def _decoupled_yaml(job_name, run_sig, split_type, pct, frac, ss, ms, wandb_key)
     """)
 
     return _k8s_job(job_name, "gw-multiseed", "gru-decoupled", env, cmd)
+
+
+def _gru_only_yaml(job_name, run_sig, ms, wandb_key):
+    env = _env_block(wandb_key)
+    cfg_script = (
+        "import yaml; "
+        "cfg = yaml.safe_load(open('configs/gru/gru.yaml')); "
+        f"cfg['run_sig'] = '{run_sig}'; "
+        f"cfg['training']['seed'] = {ms}; "
+        "cfg['dataset'] = 'full_merged'; "
+        "cfg['exclude_static_features'] = ['parde_seasonality', 'GW_recharge_r1000m', 'gw_gespannt_bin', 'siwa_verweilzeit_j']; "
+        "cfg['spatial_split'] = {'split_type': 'random', 'train_fraction': 1.0, 'split_seed': 42, "
+        "'cluster_count': 10, 'max_dist_k': 3, 'max_dist_percentile': 25, "
+        "'exclude_terms': 'geometry,x_25833,y_25833'}; "
+        "yaml.dump(cfg, open('$CFG', 'w'), default_flow_style=False)"
+    )
+
+    cmd = textwrap.dedent(f"""\
+        set -euo pipefail
+        source /storage/venv/bin/activate
+        cd /storage/gwl-interpolation
+
+        CFG=/tmp/{job_name}.yaml
+        python3 -c "{cfg_script}"
+
+        mkdir -p reports/gru_gp/logs
+        {{
+          echo '=== TRAIN ==='
+          time python src/scripts/joint/temporal/gru_train.py --config $CFG
+          echo '=== EVAL ==='
+          time python src/scripts/joint/temporal/gru_eval.py --config $CFG
+        }} 2>&1 | tee reports/gru_gp/logs/{job_name}.log
+    """)
+
+    return _k8s_job(job_name, "gw-multiseed-global", "gru-global", env, cmd)
 
 
 def _joint_yaml(job_name, run_sig, split_type, pct, frac, ss, ms, wandb_key):
@@ -261,7 +299,7 @@ spec:
           mountPath: /storage
         - name: dshm
           mountPath: /dev/shm
-        command: ["bash", "-lc"]
+        command: ["bash", "-c"]
         args:
         - |
 {textwrap.indent(cmd, "          ")}"""
@@ -281,14 +319,26 @@ class JobSpec:
 
     @property
     def name(self):
+        if self.job_type == "global":
+            return f"gw-ms-g-{self.ms}"
         prefix = "j" if self.job_type == "joint" else "d"
         return _job_name(prefix, self.split_type, self.pct, self.frac, self.ss, self.ms)
 
     @property
     def run_sig(self):
+        if self.job_type == "global":
+            return f"in52_out16_ep50_bs4096_seed{self.ms}_global"
         return _run_sig(self.split_type, self.pct, self.frac, self.ss, self.ms)
 
+    @property
+    def type_abbrev(self):
+        if self.job_type == "global":
+            return "global"
+        return _type_abbrev(self.split_type, self.pct)
+
     def to_yaml(self, wandb_key):
+        if self.job_type == "global":
+            return _gru_only_yaml(self.name, self.run_sig, self.ms, wandb_key)
         if self.job_type == "joint":
             return _joint_yaml(self.name, self.run_sig, self.split_type,
                                self.pct, self.frac, self.ss, self.ms, wandb_key)
@@ -296,7 +346,7 @@ class JobSpec:
                                self.pct, self.frac, self.ss, self.ms, wandb_key)
 
 
-def build_job_list(include_decoupled=True, include_joint=True):
+def build_job_list(include_decoupled=True, include_joint=True, include_global=True):
     jobs = []
     if include_decoupled:
         for split_type, pct, frac, seeds in DECOUPLED_GROUPS:
@@ -306,6 +356,9 @@ def build_job_list(include_decoupled=True, include_joint=True):
         for split_type, pct, frac, seeds in JOINT_GROUPS:
             for ss, ms in product(seeds, MODEL_SEEDS):
                 jobs.append(JobSpec("joint", split_type, pct, frac, ss, ms))
+    if include_global:
+        for ms in GLOBAL_GRU_SEEDS:
+            jobs.append(JobSpec("global", None, None, None, None, ms))
     return jobs
 
 # ---------------------------------------------------------------------------
@@ -317,8 +370,9 @@ def main():
     p.add_argument("--dry-run",        action="store_true")
     p.add_argument("--joint-only",     action="store_true")
     p.add_argument("--decoupled-only", action="store_true")
+    p.add_argument("--global-only",    action="store_true")
     p.add_argument("--no-wandb",       action="store_true")
-    p.add_argument("--type",  help="Filter by type abbrev (rand, km, md90, ...)")
+    p.add_argument("--type",  help="Filter by type abbrev (rand, km, md50, md90, global, ...)")
     p.add_argument("--frac",  type=int, help="Filter by frac as int (95, 90, 80)")
     p.add_argument("--ss",    type=int, help="Filter by split seed")
     p.add_argument("--ms",    type=int, help="Filter by model seed")
@@ -329,12 +383,13 @@ def main():
         print("WARNING: WANDB_API_KEY not set — WandB will be disabled.")
 
     jobs = build_job_list(
-        include_decoupled=not args.joint_only,
-        include_joint=not args.decoupled_only,
+        include_decoupled=not args.joint_only  and not args.global_only,
+        include_joint    =not args.decoupled_only and not args.global_only,
+        include_global   =not args.joint_only  and not args.decoupled_only,
     )
 
     if args.type:
-        jobs = [j for j in jobs if _type_abbrev(j.split_type, j.pct) == args.type]
+        jobs = [j for j in jobs if j.type_abbrev == args.type]
     if args.frac is not None:
         jobs = [j for j in jobs if int(round(j.frac * 100)) == args.frac]
     if args.ss is not None:
