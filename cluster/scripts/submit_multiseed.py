@@ -14,12 +14,12 @@ from typing import Optional
 # ---------------------------------------------------------------------------
 
 MODEL_SEEDS = [40, 41, 42, 43, 44]
-JOINT_MODEL_SEEDS = [40, 41]
+JOINT_MODEL_SEEDS = [40, 41, 42, 43, 44]
 
 DECOUPLED_GROUPS = [
     # random — 0.95×10 seeds + 0.90×5 + 0.80×5 = 20 splits → ×5 model seeds = 100
     ("random", None, 0.95, [42, 43, 44, 45, 46, 47, 48, 49, 50, 51]),
-    ("random", None, 0.90, [42, 43, 44, 45, 46]),
+    ("random", None, 0.90, [42, 43, 44, 45, 46, 47, 48, 49, 50, 51]),
     ("random", None, 0.80, [42, 43, 44, 45, 46]),
     # max_dist p10 — 10 splits × 5 model seeds = 50
     ("max_dist", 10,  0.95, [42, 43, 44, 45, 46, 47, 48, 49, 50, 51]),
@@ -29,14 +29,16 @@ DECOUPLED_GROUPS = [
     ("max_dist", 90,  0.95, [42, 43, 44, 45, 46, 47, 48, 49, 50, 51]),
     # max_dist p100 — 5 splits × 5 model seeds = 25
     ("max_dist", 100, 0.95, [42, 43, 44, 45, 46]),
+    # max_dist p50 f0.90 — 10 splits × 5 model seeds = 50
+    ("max_dist", 50,  0.90, [42, 43, 44, 45, 46, 47, 48, 49, 50, 51]),
     # kmeans — 5 splits × 5 model seeds = 25
     ("kmeans",  None, 0.95, [42, 43, 44, 45, 46]),
 ]
 # Total decoupled: 100 + 50 + 50 + 50 + 25 + 25 = 300
 
 JOINT_GROUPS = [
-    # random — 2 splits × 2 model seeds = 4 (initial batch; expand later)
-    ("random", None, 0.95, [42, 43]),
+    # random — 10 splits × 5 model seeds = 50 (submitting in nightly batches)
+    ("random", None, 0.95, [42, 43, 44, 45]),
 ]
 
 # Global GRU: full_merged (1040 wells, no dedup), all wells in training, 10 seeds
