@@ -40,7 +40,7 @@ EXCLUDE_TERMS = ["geometry", "x_25833", "y_25833"]
 
 RANDOM_FRAC_SEEDS = {
     0.95: [42, 43, 44, 45, 46, 47, 48, 49, 50, 51],
-    0.90: [42, 43, 44, 45, 46],
+    0.90: [42, 43, 44, 45, 46, 47, 48, 49, 50, 51],
     0.80: [42, 43, 44, 45, 46],
 }
 
@@ -53,6 +53,11 @@ MD_PCT_SEEDS = {
     50:  [42, 43, 44, 45, 46, 47, 48, 49, 50, 51],
     90:  [42, 43, 44, 45, 46, 47, 48, 49, 50, 51],
     100: [42, 43, 44, 45, 46],
+}
+
+MD_F90_FRAC      = 0.90
+MD_F90_PCT_SEEDS = {
+    50: [42, 43, 44, 45, 46, 47, 48, 49, 50, 51],
 }
 
 
@@ -96,13 +101,22 @@ def main():
             n_clusters=10, rng_seed=seed, exclude_terms=EXCLUDE_TERMS,
         )
 
-    print("\n--- max_dist ---")
+    print("\n--- max_dist f0.95 ---")
     for pct, seeds in MD_PCT_SEEDS.items():
         for seed in seeds:
             path = SPLITS_DIR / f"spatial_split_{DATASET}_max_dist_f{_fs(MD_FRAC)}_k3_p{pct}_ss{seed}.csv"
             _skip_or_make(
                 path, spatial_split_random_max_dist, gws,
                 train_fraction=MD_FRAC, k=3, d_percentile=pct, rng_seed=seed,
+            )
+
+    print("\n--- max_dist f0.90 ---")
+    for pct, seeds in MD_F90_PCT_SEEDS.items():
+        for seed in seeds:
+            path = SPLITS_DIR / f"spatial_split_{DATASET}_max_dist_f{_fs(MD_F90_FRAC)}_k3_p{pct}_ss{seed}.csv"
+            _skip_or_make(
+                path, spatial_split_random_max_dist, gws,
+                train_fraction=MD_F90_FRAC, k=3, d_percentile=pct, rng_seed=seed,
             )
 
     print("\nDone.")
