@@ -14,28 +14,29 @@ from typing import Optional
 # ---------------------------------------------------------------------------
 
 MODEL_SEEDS = [40, 41, 42, 43, 44]
+JOINT_MODEL_SEEDS = [40, 41]
 
 DECOUPLED_GROUPS = [
     # random — 0.95×10 seeds + 0.90×5 + 0.80×5 = 20 splits → ×5 model seeds = 100
     ("random", None, 0.95, [42, 43, 44, 45, 46, 47, 48, 49, 50, 51]),
     ("random", None, 0.90, [42, 43, 44, 45, 46]),
     ("random", None, 0.80, [42, 43, 44, 45, 46]),
-    # max_dist p10 ceiling — 1 split × 5 model seeds = 5
-    ("max_dist", 10,  0.95, [42]),
-    # max_dist p50 — 5 splits × 5 model seeds = 25
-    ("max_dist", 50,  0.95, [42, 43, 44, 45, 46]),
-    # max_dist p90 — 5 splits × 5 model seeds = 25
-    ("max_dist", 90,  0.95, [42, 43, 44, 45, 46]),
+    # max_dist p10 — 10 splits × 5 model seeds = 50
+    ("max_dist", 10,  0.95, [42, 43, 44, 45, 46, 47, 48, 49, 50, 51]),
+    # max_dist p50 — 10 splits × 5 model seeds = 50
+    ("max_dist", 50,  0.95, [42, 43, 44, 45, 46, 47, 48, 49, 50, 51]),
+    # max_dist p90 — 10 splits × 5 model seeds = 50
+    ("max_dist", 90,  0.95, [42, 43, 44, 45, 46, 47, 48, 49, 50, 51]),
     # max_dist p100 — 5 splits × 5 model seeds = 25
     ("max_dist", 100, 0.95, [42, 43, 44, 45, 46]),
     # kmeans — 5 splits × 5 model seeds = 25
     ("kmeans",  None, 0.95, [42, 43, 44, 45, 46]),
 ]
-# Total decoupled: 100 + 5 + 25 + 25 + 25 + 25 = 205
+# Total decoupled: 100 + 50 + 50 + 50 + 25 + 25 = 300
 
 JOINT_GROUPS = [
-    # max_dist p90 — 2 splits × 5 model seeds = 10
-    ("max_dist", 90, 0.95, [42, 43]),
+    # random — 2 splits × 2 model seeds = 4 (initial batch; expand later)
+    ("random", None, 0.95, [42, 43]),
 ]
 
 # Global GRU: full_merged (1040 wells, no dedup), all wells in training, 10 seeds
@@ -93,6 +94,9 @@ AFFINITY = """\
                 values:
                 - k80
                 - p100
+                - v100
+                - l40
+                - b200
                 - "false"
 """
 
@@ -280,7 +284,7 @@ spec:
       - name: dshm
         emptyDir:
           medium: Memory
-          sizeLimit: "8Gi"
+          sizeLimit: "16Gi"
       containers:
       - name: {container_name}
         image: row56/gw-pred:py312-cu124
@@ -288,10 +292,10 @@ spec:
         resources:
           requests:
             cpu: "8"
-            memory: 48Gi
+            memory: 80Gi
             nvidia.com/gpu: 1
           limits:
-            memory: 48Gi
+            memory: 80Gi
             nvidia.com/gpu: 1
 {env_block}
         volumeMounts:
@@ -354,7 +358,7 @@ def build_job_list(include_decoupled=True, include_joint=True, include_global=Tr
                 jobs.append(JobSpec("decoupled", split_type, pct, frac, ss, ms))
     if include_joint:
         for split_type, pct, frac, seeds in JOINT_GROUPS:
-            for ss, ms in product(seeds, MODEL_SEEDS):
+            for ss, ms in product(seeds, JOINT_MODEL_SEEDS):
                 jobs.append(JobSpec("joint", split_type, pct, frac, ss, ms))
     if include_global:
         for ms in GLOBAL_GRU_SEEDS:
@@ -372,6 +376,7 @@ def main():
     p.add_argument("--decoupled-only", action="store_true")
     p.add_argument("--global-only",    action="store_true")
     p.add_argument("--no-wandb",       action="store_true")
+    p.add_argument("--skip-existing",  action="store_true", help="Skip jobs that already exist in the cluster")
     p.add_argument("--type",  help="Filter by type abbrev (rand, km, md50, md90, global, ...)")
     p.add_argument("--frac",  type=int, help="Filter by frac as int (95, 90, 80)")
     p.add_argument("--ss",    type=int, help="Filter by split seed")
@@ -403,6 +408,14 @@ def main():
         for j in jobs:
             print(f"  {j.job_type:10s}  {j.name}  {j.run_sig}")
         return
+
+    existing = set()
+    if args.skip_existing:
+        out = subprocess.run(["kubectl", "get", "jobs", "--no-headers", "-o", "custom-columns=NAME:.metadata.name"],
+                             capture_output=True, text=True)
+        existing = set(out.stdout.split())
+        jobs = [j for j in jobs if j.name not in existing]
+        print(f"  ({len(existing)} existing jobs skipped, {len(jobs)} remaining)")
 
     submitted, failed = 0, 0
     for j in jobs:
