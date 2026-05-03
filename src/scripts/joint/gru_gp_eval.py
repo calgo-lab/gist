@@ -230,6 +230,8 @@ def main():
     if gp_features or gp_features_onehot:
         meta_path = Path(data_cfg.get("metadata_path", ""))
         meta_df = pd.read_csv(meta_path, sep=";")[["id"] + gp_features + gp_features_onehot].drop_duplicates("id")
+        for _f in gp_features:
+            meta_df[_f] = meta_df[_f].fillna(meta_df[_f].median())
         cont_vals = meta_df[gp_features].values.astype(np.float32) if gp_features else np.zeros((len(meta_df), 0), dtype=np.float32)
         if gp_features and feat_scaler is not None:
             cont_vals = feat_scaler.transform(cont_vals).astype(np.float32)
