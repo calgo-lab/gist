@@ -35,10 +35,8 @@ STATIC_FEATURE_REGEX = (
     "|^gok$"
     "|^parde_seasonality$"
     "|^GW_recharge_r1000m$"
+    "|^siwa_verweilzeit_j$"
     "|^gw_gespannt_bin$"
-    "|^hydroraum_Entlastungsgebiete$"
-    "|^hydroraum_Transitgebiete$"
-    "|^hydroraum_Speisungsgebiete$"
 )
 COV_COLS = ["tas_5km", "hurs_5km", "pr_5km", "tag_sin", "tag_cos"]
 TRAIN_CUTOFF = pd.Timestamp("20160101")
@@ -284,6 +282,13 @@ def main():
         err = g["gws_forecast"] - g["gws"]
         metrics_rows.append({"horizon": int(h), "RMSE": float(np.sqrt(np.mean(err**2))), "MAE": float(np.mean(np.abs(err)))})
     metrics_df = pd.DataFrame(metrics_rows).sort_values("horizon")
+
+    per_well_rmse = pred_df.groupby("id").apply(
+        lambda g: float(np.sqrt(np.mean((g["gws_forecast"] - g["gws"]) ** 2))),
+        include_groups=False,
+    )
+    rmse_pw = float(per_well_rmse.median())
+    print(f"  RMSE_pw: {rmse_pw:.4f}")
 
     pred_dir = run_dir / "predictions"
     pred_dir.mkdir(parents=True, exist_ok=True)
