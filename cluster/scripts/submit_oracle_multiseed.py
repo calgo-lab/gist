@@ -11,9 +11,6 @@ AFFINITY = """\
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
             - matchExpressions:
-              - key: kubernetes.io/hostname
-                operator: NotIn
-                values:
               - key: gpu
                 operator: NotIn
                 values:
