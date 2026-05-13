@@ -45,6 +45,9 @@ STATIC_FEATURE_REGEX = (
     "|^GW_recharge_r1000m$"
     "|^siwa_verweilzeit_j$"
     "|^gw_gespannt_bin$"
+    "|^hydroraum_Entlastungsgebiete$"
+    "|^hydroraum_Transitgebiete$"
+    "|^hydroraum_Speisungsgebiete$"
 )
 COV_COLS = ["tas_5km", "hurs_5km", "pr_5km", "tag_sin", "tag_cos"]
 TRAIN_CUTOFF = pd.Timestamp("20160101")
