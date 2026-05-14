@@ -39,7 +39,15 @@ STATIC_FEATURE_REGEX = (
     "|gwn"
     "|huek250.+_(kf).+"
     "|corine"
-    "|twi"
+    "|^TWI_dgm50_r1000m$"
+    "|^gok$"
+    "|^parde_seasonality$"
+    "|^GW_recharge_r1000m$"
+    "|^siwa_verweilzeit_j$"
+    "|^gw_gespannt_bin$"
+    "|^hydroraum_Entlastungsgebiete$"
+    "|^hydroraum_Transitgebiete$"
+    "|^hydroraum_Speisungsgebiete$"
 )
 COV_COLS = ["tas_5km", "hurs_5km", "pr_5km", "tag_sin", "tag_cos"]
 TRAIN_CUTOFF = pd.Timestamp("20160101")
@@ -93,6 +101,33 @@ def _build_windows(df, in_len, out_len, cov_cols, well_stats, well_static, targe
     y = np.stack(y_rows) if y_rows else np.zeros((0, out_len), dtype=np.float32)
     x_static = np.stack(x_static_rows) if x_static_rows else np.zeros((0, static_size), dtype=np.float32)
     return x_past, x_future, y, x_static, meta
+
+
+def _pretrain_mll_kernel(gp, X_train, y_train, n_steps=300, lr=1e-2, max_train_pts=2000, device=torch.device("cpu")):
+    gp.train()
+    if X_train.size(0) > max_train_pts:
+        idx = torch.randperm(X_train.size(0))[:max_train_pts]
+        X_s, y_s = X_train[idx], y_train[idx]
+    else:
+        X_s, y_s = X_train, y_train
+    X_s, y_s = X_s.detach().to(device), y_s.detach().to(device)
+    params = list(gp.covar_module.parameters()) + list(gp.likelihood.parameters())
+    opt = torch.optim.Adam(params, lr=lr)
+    for step in range(n_steps):
+        last_good = {k: v.detach().clone() for k, v in gp.state_dict().items()}
+        opt.zero_grad()
+        try:
+            loss = gp.marginal_log_likelihood(X_s, y_s)
+        except RuntimeError:
+            break
+        if not torch.isfinite(loss):
+            break
+        loss.backward()
+        grad_norm = torch.nn.utils.clip_grad_norm_(params, max_norm=5.0)
+        if not torch.isfinite(grad_norm):
+            gp.load_state_dict(last_good)
+            break
+        opt.step()
 
 
 def _nse(pred, real, y_bar=None):
@@ -311,32 +346,52 @@ def main():
         key = str(np.datetime64(row.datum, "D"))
         eval_lookup[key][row.id] = float(row.gws)
 
-    out_rows = []
-    skipped = 0
+    # Phase 1: collect GRU predictions for all eval dates
+    pretrain_steps = int(gp_cfg.get("gp_pretrain_steps", 300))
+    pretrain_lr = float(gp_cfg.get("variational_lr", 0.01))
+    max_pretrain_pts = int(gp_cfg.get("max_train_points_per_horizon", 2000))
+
+    cached_preds = {}
+    pretrain_X = [[] for _ in range(out_len)]
+    pretrain_y = [[] for _ in range(out_len)]
 
     with torch.no_grad():
         for date_key in eval_date_keys:
             indices = date_to_idx[date_key]
             batch_well_ids = [test_meta[i][0] for i in indices]
             horizon_dates = test_meta[indices[0]][3]
-
             xp = torch.from_numpy(x_past_test[indices]).to(device)
             xf = torch.from_numpy(x_future_test[indices]).to(device)
             xs = torch.from_numpy(x_static_test[indices]).to(device)
-
             y_pred_norm = model(xp, xf, xs)
+            X_train_sp = torch.tensor(np.array([gp_coords[wid] for wid in batch_well_ids]), device=device)
+            means_t = torch.tensor([well_stats.get(wid, (0.0, 1.0))[0] for wid in batch_well_ids], dtype=torch.float32, device=device)
+            stds_t = torch.tensor([well_stats.get(wid, (0.0, 1.0))[1] for wid in batch_well_ids], dtype=torch.float32, device=device)
+            cached_preds[date_key] = (batch_well_ids, y_pred_norm.cpu(), X_train_sp.cpu(), means_t.cpu(), stds_t.cpu(), horizon_dates)
+            for h_idx in range(out_len):
+                pretrain_X[h_idx].append(X_train_sp.cpu())
+                pretrain_y[h_idx].append((y_pred_norm[:, h_idx] * stds_t + means_t).cpu())
 
-            X_train_sp = torch.tensor(
-                np.array([gp_coords[wid] for wid in batch_well_ids]), device=device
-            )
-            means_t = torch.tensor(
-                [well_stats.get(wid, (0.0, 1.0))[0] for wid in batch_well_ids],
-                dtype=torch.float32, device=device,
-            )
-            stds_t = torch.tensor(
-                [well_stats.get(wid, (0.0, 1.0))[1] for wid in batch_well_ids],
-                dtype=torch.float32, device=device,
-            )
+    # Phase 2: re-pretrain GP kernels per horizon (matches decoupled eval)
+    print(f"Re-pretraining GP kernels ({pretrain_steps} steps, lr={pretrain_lr}, max_pts={max_pretrain_pts})...")
+    for h_idx in range(out_len):
+        X_all = torch.cat(pretrain_X[h_idx], dim=0).to(device)
+        y_all = torch.cat(pretrain_y[h_idx], dim=0).to(device)
+        _pretrain_mll_kernel(gp_models[h_idx], X_all, y_all, n_steps=pretrain_steps, lr=pretrain_lr, max_train_pts=max_pretrain_pts, device=device)
+        gp_models[h_idx].eval()
+    print("GP kernel pretrain done.")
+
+    # Phase 3: GP prediction using pretrained kernels
+    out_rows = []
+    skipped = 0
+
+    with torch.no_grad():
+        for date_key in eval_date_keys:
+            batch_well_ids, y_pred_norm_cpu, X_train_sp_cpu, means_t_cpu, stds_t_cpu, horizon_dates = cached_preds[date_key]
+            y_pred_norm = y_pred_norm_cpu.to(device)
+            X_train_sp = X_train_sp_cpu.to(device)
+            means_t = means_t_cpu.to(device)
+            stds_t = stds_t_cpu.to(device)
 
             for h_idx in range(out_len):
                 hdate_key = str(np.datetime64(horizon_dates[h_idx], "D"))
