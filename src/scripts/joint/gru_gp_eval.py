@@ -220,6 +220,8 @@ def main():
         data_path = Path(data_cfg["full_merged_path"])
 
     gws_full = _load_dataset(data_path)
+    if "gw_gespannt" in gws_full.columns:
+        gws_full["gw_gespannt_bin"] = (gws_full["gw_gespannt"] == "gespannt").astype("float32")
     gws_train_wells = gws_full[gws_full["id"].isin(train_ids)].copy()
 
     static_cols = [c for c in gws_train_wells.columns if re.search(STATIC_FEATURE_REGEX, c)]
