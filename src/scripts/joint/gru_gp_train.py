@@ -147,6 +147,47 @@ def _make_three_way_split(split_df, val_fraction=0.5, rng_seed=0, val_from_train
     return split_df
 
 
+def _create_coloc_split(gws_df, split_path, split_type, rng_seed, n_test=52, n_val=26):
+    from scipy.spatial import cKDTree as _cKDTree
+    meta = gws_df.groupby("id").agg(x=("x_25833", "first"), y=("y_25833", "first")).reset_index()
+    tree = _cKDTree(meta[["x", "y"]].values)
+    co_located = set()
+    for i, j in tree.query_pairs(r=8.0):
+        co_located.add(meta.iloc[i]["id"])
+        co_located.add(meta.iloc[j]["id"])
+    print(f"Co-located (forced to train): {len(co_located)}")
+    eligible = meta[~meta["id"].isin(co_located)].reset_index(drop=True)
+    print(f"Eligible for holdout/val: {len(eligible)}")
+
+    if split_type == "md50":
+        elig_coords = eligible[["x", "y"]].values
+        dists, _ = _cKDTree(elig_coords).query(elig_coords, k=4)
+        mean_dist = dists[:, 1:].mean(axis=1)
+        d_thresh = np.percentile(mean_dist, 50)
+        candidates = eligible.loc[mean_dist <= d_thresh, "id"].values
+        print(f"md50 candidates (densest 50th pct): {len(candidates)}")
+    else:  # rand
+        candidates = eligible["id"].values
+
+    rng = np.random.default_rng(rng_seed)
+    shuffled = rng.permutation(candidates)
+    holdout_ids = set(shuffled[:n_test].tolist())
+    val_ids = set(shuffled[n_test:n_test + n_val].tolist())
+
+    split = pd.DataFrame({"id": meta["id"].tolist()})
+    split["spatial_split"] = "spatial_train"
+    split.loc[split["id"].isin(holdout_ids), "spatial_split"] = "spatial_holdout"
+    split.loc[split["id"].isin(val_ids), "spatial_split"] = "spatial_val"
+    print(
+        f"Split: {(split.spatial_split=='spatial_train').sum()} train / "
+        f"{(split.spatial_split=='spatial_val').sum()} val / "
+        f"{(split.spatial_split=='spatial_holdout').sum()} holdout"
+    )
+    split_path.parent.mkdir(parents=True, exist_ok=True)
+    split.to_csv(split_path, index=False)
+    print(f"Saved: {split_path}")
+
+
 def _build_gws_lookup(gws_df, well_ids):
     subset = gws_df[gws_df["id"].isin(well_ids)][["datum", "id", "gws"]].dropna(subset=["gws"])
     lookup = defaultdict(dict)
@@ -309,15 +350,12 @@ def main():
         hr_slug = hydroraum_filter.lower().replace(" ", "_")
         split_path = split_path.with_stem(split_path.stem + f"_hr_{hr_slug}")
     if not split_path.exists():
-        load_or_create_split(
-            gws_full,
-            static_regex=STATIC_FEATURE_REGEX,
-            train_fraction=spatial_fraction,
-            n_clusters=spatial_clusters,
-            rng_seed=spatial_seed,
-            exclude_terms=spatial_excludes,
-            save_path=split_path,
-        )
+        coloc_split_type = spatial_cfg.get("coloc_split_type")
+        if not coloc_split_type:
+            raise ValueError(
+                f"Split file not found and no 'coloc_split_type' in spatial_split config: {split_path}"
+            )
+        _create_coloc_split(gws_full, split_path, coloc_split_type, spatial_seed)
     split_df = pd.read_csv(split_path)
     if "spatial_val" not in split_df["spatial_split"].values:
         split_df = _make_three_way_split(split_df, val_fraction=spatial_val_fraction, rng_seed=spatial_seed, val_from_train_fraction=val_from_train_fraction)
