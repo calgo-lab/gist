@@ -147,6 +147,7 @@ def main():
     parser.add_argument("--jitter", type=float, default=None)
     parser.add_argument("--variational-lr", type=float, default=None)
     parser.add_argument("--use-float64", default=None)
+    parser.add_argument("--gp-seed", type=int, default=None)
 
     config_args, _ = parser.parse_known_args()
     gp_cfg = _load_yaml(ROOT / config_args.config)
@@ -157,12 +158,16 @@ def main():
         pretrain_steps   = int(gp_cfg.get("pretrain_steps",   200)),
         pretrain_lr      = float(gp_cfg.get("pretrain_lr",    1e-2)),
         max_pretrain_pts = int(gp_cfg.get("max_pretrain_pts", 2000)),
-        date_freq        = str(gp_cfg.get("date_freq",        "ME")),
+        date_freq        = str(gp_cfg.get("date_freq",        "D")),
         jitter           = float(gp_cfg.get("jitter",         1e-5)),
         variational_lr   = float(gp_cfg.get("variational_lr", 1e-2)),
         use_float64      = str(gp_cfg.get("use_float64",      True)).lower(),
     )
     args = parser.parse_args()
+
+    if args.gp_seed is not None:
+        torch.manual_seed(args.gp_seed)
+        np.random.seed(args.gp_seed)
 
     gru_cfg = _load_yaml(ROOT / "configs" / "gru.yaml")
     tft_cfg = _load_yaml(ROOT / "configs" / "tft.yaml")
@@ -268,6 +273,7 @@ def main():
         meta = pd.read_csv(meta_path, sep=";")[["id"] + gp_features + gp_features_onehot]
         coords = coords.merge(meta, on="id", how="left")
         for f in gp_features:
+            coords[f] = pd.to_numeric(coords[f], errors="coerce")
             coords[f] = coords[f].fillna(coords[f].median())
         for f in gp_features_onehot:
             dummies = pd.get_dummies(coords[f], prefix=f, drop_first=True).astype(float)
@@ -403,6 +409,27 @@ def main():
     per_id_rmse  = per_id_rmse[np.isfinite(per_id_rmse)]
     per_id_nrmse = per_id_nrmse[np.isfinite(per_id_nrmse)]
 
+    # NSE_hw: per (well, horizon) → median across wells per horizon → mean over horizons.
+    # Mirrors gru_report.py so GRU and GP NSE values are directly comparable.
+    per_id_h_rows = []
+    for (well_id, hv), g in out_df.groupby(["id", "horizon"]):
+        pred_w = g["gws_forecast"].to_numpy()
+        true_w = g["gws_true"].to_numpy()
+        per_id_h_rows.append({
+            "id": well_id, "horizon": hv,
+            "NSE":   _nse(pred_w, true_w),
+            "RMSE":  _rmse(pred_w, true_w),
+            "nRMSE": _nrmse(pred_w, true_w),
+        })
+    per_id_h_df = pd.DataFrame(per_id_h_rows)
+    if not per_id_h_df.empty:
+        per_h_median = per_id_h_df.groupby("horizon")[["NSE", "RMSE", "nRMSE"]].median()
+        nse_hw   = float(np.nanmean(per_h_median["NSE"].to_numpy(dtype=float)))
+        rmse_hw  = float(np.nanmean(per_h_median["RMSE"].to_numpy(dtype=float)))
+        nrmse_hw = float(np.nanmean(per_h_median["nRMSE"].to_numpy(dtype=float)))
+    else:
+        nse_hw = rmse_hw = nrmse_hw = float("nan")
+
     overall_metrics = {
         "RMSE":          _rmse(pred_all, real_all),
         "nRMSE":         _nrmse(pred_all, real_all),
@@ -414,6 +441,9 @@ def main():
         "NSE_id_p75":    float(np.percentile(per_id_valid, 75)) if per_id_valid.size else float("nan"),
         "NSE_id_mean":   float(np.mean(per_id_valid)) if per_id_valid.size else float("nan"),
         "NSE_id_count":  float(per_id_valid.size),
+        "NSE_hw":        nse_hw,
+        "RMSE_hw":       rmse_hw,
+        "nRMSE_hw":      nrmse_hw,
         "MAE":           float(np.mean(abs_err)),
         "AbsErr_P95":    float(np.percentile(abs_err, 95)) if abs_err.size else float("nan"),
         "AbsErr_P99":    float(np.percentile(abs_err, 99)) if abs_err.size else float("nan"),
@@ -449,6 +479,8 @@ def main():
     per_pair_metrics.to_csv(gp_dir / "gp_metrics_by_pair.csv", index=False)
     if not per_id_nse_df.empty:
         per_id_nse_df.to_csv(gp_dir / "gp_metrics_by_id.csv", index=False)
+    if not per_id_h_df.empty:
+        per_id_h_df.to_csv(gp_dir / "gp_metrics_by_id_horizon.csv", index=False)
 
     print(f"\nSaved GP outputs to {gp_dir}")
     print(f"Valid pairs: {valid_pairs}  |  Skipped: {len(skipped)}")
