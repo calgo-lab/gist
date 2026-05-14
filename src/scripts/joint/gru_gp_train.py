@@ -45,7 +45,15 @@ STATIC_FEATURE_REGEX = (
     "|gwn"
     "|huek250.+_(kf).+"
     "|corine"
-    "|twi"
+    "|^TWI_dgm50_r1000m$"
+    "|^gok$"
+    "|^parde_seasonality$"
+    "|^GW_recharge_r1000m$"
+    "|^siwa_verweilzeit_j$"
+    "|^gw_gespannt_bin$"
+    "|^hydroraum_Entlastungsgebiete$"
+    "|^hydroraum_Transitgebiete$"
+    "|^hydroraum_Speisungsgebiete$"
 )
 COV_COLS = ["tas_5km", "hurs_5km", "pr_5km", "tag_sin", "tag_cos"]
 TRAIN_CUTOFF = pd.Timestamp("20160101")
@@ -121,6 +129,10 @@ def _make_three_way_split(split_df, val_fraction=0.5, rng_seed=0, val_from_train
         n_val = max(1, int(round(len(train_ids) * val_from_train_fraction)))
         val_ids = set(rng.choice(train_ids, size=n_val, replace=False).tolist())
         split_df.loc[split_df["id"].isin(val_ids), "spatial_split"] = "spatial_val"
+        return split_df
+
+    if val_fraction == 0.0:
+        split_df.loc[split_df["spatial_split"] == "spatial_holdout", "spatial_split"] = "spatial_test"
         return split_df
 
     holdout = split_df[split_df["spatial_split"] == "spatial_holdout"]
@@ -277,6 +289,7 @@ def main():
     min_train_wells = int(joint_cfg.get("min_train_wells", 5))
     min_val_wells = int(joint_cfg.get("min_val_wells", 2))
     val_gp_stride = int(joint_cfg.get("val_gp_stride", 4))
+    n_gp_dates = int(joint_cfg.get("n_gp_dates", 8))
 
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -306,7 +319,10 @@ def main():
             save_path=split_path,
         )
     split_df = pd.read_csv(split_path)
-    split_df = _make_three_way_split(split_df, val_fraction=spatial_val_fraction, rng_seed=spatial_seed, val_from_train_fraction=val_from_train_fraction)
+    if "spatial_val" not in split_df["spatial_split"].values:
+        split_df = _make_three_way_split(split_df, val_fraction=spatial_val_fraction, rng_seed=spatial_seed, val_from_train_fraction=val_from_train_fraction)
+    else:
+        split_df.loc[split_df["spatial_split"] == "spatial_holdout", "spatial_split"] = "spatial_test"
 
     train_ids = set(split_df.loc[split_df["spatial_split"] == "spatial_train", "id"])
     val_ids = set(split_df.loc[split_df["spatial_split"] == "spatial_val", "id"])
@@ -343,6 +359,7 @@ def main():
     end_times = np.array([m[2] for m in meta])
     train_mask = end_times <= np.datetime64(TRAIN_CUTOFF)
     val_mask = (end_times > np.datetime64(TRAIN_CUTOFF)) & (end_times <= np.datetime64(VAL_CUTOFF))
+    test_mask = end_times > np.datetime64(VAL_CUTOFF)
 
     cov_scaler = StandardScaler()
     cov_scaler.fit(np.concatenate([
@@ -357,12 +374,15 @@ def main():
 
     x_past_train, x_future_train = _scale(x_past_all[train_mask], x_future_all[train_mask])
     x_past_val, x_future_val = _scale(x_past_all[val_mask], x_future_all[val_mask])
+    x_past_test, x_future_test = _scale(x_past_all[test_mask], x_future_all[test_mask])
     y_train = y_all[train_mask]
     y_val = y_all[val_mask]
     x_static_train = x_static_all[train_mask]
     x_static_val = x_static_all[val_mask]
+    x_static_test = x_static_all[test_mask]
     train_meta = [m for i, m in enumerate(meta) if train_mask[i]]
     val_meta = [m for i, m in enumerate(meta) if val_mask[i]]
+    test_meta = [m for i, m in enumerate(meta) if test_mask[i]]
 
     coords_df = gws_full[["id", "x_25833", "y_25833"]].drop_duplicates("id").dropna()
     raw_coords = {
@@ -416,10 +436,15 @@ def main():
 
     train_date_idx = _build_date_index(train_meta)
     val_date_idx = _build_date_index(val_meta)
+    test_date_idx = _build_date_index(test_meta)
 
     train_dates = sorted(k for k, v in train_date_idx.items() if len(v) >= min_train_wells)
     val_dates = sorted(val_date_idx.keys())
     val_dates_gp = val_dates[::val_gp_stride]
+    # GP coloc uses only temporal test-period dates — mirrors the decoupled eval scenario
+    coloc_dates = sorted(k for k, v in test_date_idx.items() if len(v) >= min_train_wells)
+    coloc_dates_val = coloc_dates[::val_gp_stride]
+    print(f"GRU training dates: {len(train_dates)}  |  GP coloc dates (test period): {len(coloc_dates)}")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -453,9 +478,10 @@ def main():
     if gp_pretrain_steps > 0:
         _pretrain_gp_kernels(
             gp_models, model,
-            x_past_train, x_future_train, x_static_train, train_meta,
+            x_past_test, x_future_test, x_static_test, test_meta,
             well_stats, gp_coords,
             device, n_steps=gp_pretrain_steps, lr=gp_pretrain_lr,
+            max_pts=int(gp_cfg.get("max_pretrain_pts", 2000)),
         )
 
     gru_optimizer = torch.optim.Adam(model.parameters(), lr=gru_lr)
@@ -509,25 +535,37 @@ def main():
         epoch_gru_losses = []
         epoch_gp_losses = []
 
-        # Loop through batches (grouped by date)
+        # Phase A: GRU MSE training on temporal training period (pre-2016)
         for date_key in train_dates:
             indices = train_date_idx[date_key]
-            batch_well_ids = [train_meta[i][0] for i in indices]
-            horizon_dates = train_meta[indices[0]][3]
-
             xp = torch.from_numpy(x_past_train[indices]).to(device)
             xf = torch.from_numpy(x_future_train[indices]).to(device)
             ys = torch.from_numpy(y_train[indices]).to(device)
             xs = torch.from_numpy(x_static_train[indices]).to(device)
 
             gru_optimizer.zero_grad()
+            gru_mse = loss_fn(model(xp, xf, xs), ys)
+            gru_mse.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+            gru_optimizer.step()
+            epoch_gru_losses.append(gru_mse.item())
+
+        # Phase B: GP coloc on temporal test period (post-2020) — mirrors decoupled eval
+        rng.shuffle(coloc_dates)
+        for date_key in coloc_dates[:n_gp_dates]:
+            indices = test_date_idx[date_key]
+            batch_well_ids = [test_meta[i][0] for i in indices]
+            horizon_dates = test_meta[indices[0]][3]
+
+            xp = torch.from_numpy(x_past_test[indices]).to(device)
+            xf = torch.from_numpy(x_future_test[indices]).to(device)
+            xs = torch.from_numpy(x_static_test[indices]).to(device)
+
+            gru_optimizer.zero_grad()
             gp_optimizer.zero_grad()
 
-            ##################### Forward pass through GRU and compute GRU loss
             y_pred = model(xp, xf, xs)
-            gru_mse = loss_fn(y_pred, ys)
 
-            # Training locations for GP
             X_train_sp = torch.tensor(
                 np.array([gp_coords[wid] for wid in batch_well_ids]), device=device,
             )
@@ -541,52 +579,29 @@ def main():
             )
 
             gp_mses = []
-
-            # Loop through each forecast horizon and compute GP loss
             for h_idx in range(out_len):
                 hdate_key = str(np.datetime64(horizon_dates[h_idx], "D"))
                 val_data = val_gws_lookup.get(hdate_key, {})
                 if len(val_data) < min_val_wells:
                     continue
-
                 val_well_ids = list(val_data.keys())
                 val_true = torch.tensor(
                     [val_data[wid] for wid in val_well_ids], dtype=torch.float32, device=device,
                 )
-
-                # Validation locations for GP
                 X_val_sp = torch.tensor(
                     np.array([gp_coords[wid] for wid in val_well_ids]), device=device,
                 )
-
-                ##################### Denormalize GRU predictions for the current horizon -> GP training observations
                 y_pred_h = y_pred[:, h_idx] * stds_t + means_t
-                
-                ##################### Forward pass through GP; y_pred_h comes from GRU
                 y_gp = gp_models[h_idx](X_train_sp, y_pred_h, X_val_sp)
-
-                ##################### GP loss for current horizon
                 gp_mses.append(loss_fn(y_gp.float(), val_true))
 
             if gp_mses:
-
-                ##################### GP objective (average over horizons)
                 gp_loss = torch.stack(gp_mses).mean()
-
-                ##################### Joint training objective
-                loss = gru_mse + lambda_spatial * gp_loss
+                (lambda_spatial * gp_loss).backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+                gru_optimizer.step()
+                gp_optimizer.step()
                 epoch_gp_losses.append(gp_loss.item())
-            else:
-                loss = gru_mse
-                print(f"Epoch {epoch}: No valid GP training samples for horizon {h_idx}, skipping GP loss.")
-
-            epoch_gru_losses.append(gru_mse.item())
-
-            ##################### Backprop through both GRU and GP
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-            gru_optimizer.step()
-            gp_optimizer.step()
 
         model.eval()
         for gp in gp_models:
@@ -604,16 +619,16 @@ def main():
                 xs = torch.from_numpy(x_static_val[indices]).to(device)
                 val_gru_losses.append(loss_fn(model(xp, xf, xs), ys).item())
 
-            for date_key in val_dates_gp:
-                if date_key not in val_date_idx:
+            for date_key in coloc_dates_val:
+                if date_key not in test_date_idx:
                     continue
-                indices = val_date_idx[date_key]
-                batch_well_ids = [val_meta[i][0] for i in indices]
-                horizon_dates = val_meta[indices[0]][3]
+                indices = test_date_idx[date_key]
+                batch_well_ids = [test_meta[i][0] for i in indices]
+                horizon_dates = test_meta[indices[0]][3]
 
-                xp = torch.from_numpy(x_past_val[indices]).to(device)
-                xf = torch.from_numpy(x_future_val[indices]).to(device)
-                xs = torch.from_numpy(x_static_val[indices]).to(device)
+                xp = torch.from_numpy(x_past_test[indices]).to(device)
+                xf = torch.from_numpy(x_future_test[indices]).to(device)
+                xs = torch.from_numpy(x_static_test[indices]).to(device)
                 y_pred = model(xp, xf, xs)
 
                 X_train_sp = torch.tensor(
@@ -665,18 +680,23 @@ def main():
             _wandb.log({"epoch": epoch, "train_gru": train_gru, "train_gp": train_gp,
                         "val_gru": val_gru, "val_gp": val_gp, "val_combined": val_combined})
 
-        improved = best_val is None or val_combined < best_val - es_min_delta
-        if improved:
-            best_val = val_combined
+        if not val_ids:
             best_epoch = epoch
-            no_improve = 0
             best_gru_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
             best_gp_states = [{k: v.cpu().clone() for k, v in gp.state_dict().items()} for gp in gp_models]
         else:
-            no_improve += 1
-            if no_improve >= es_patience:
-                print(f"Early stopping at epoch {epoch} (no improvement for {es_patience} epochs)")
-                break
+            improved = best_val is None or val_combined < best_val - es_min_delta
+            if improved:
+                best_val = val_combined
+                best_epoch = epoch
+                no_improve = 0
+                best_gru_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+                best_gp_states = [{k: v.cpu().clone() for k, v in gp.state_dict().items()} for gp in gp_models]
+            else:
+                no_improve += 1
+                if no_improve >= es_patience:
+                    print(f"Early stopping at epoch {epoch} (no improvement for {es_patience} epochs)")
+                    break
 
     run_sig = _resolve_joint_run_sig(
         gru_cfg=gru_cfg, dataset=dataset, in_len=in_len, out_len=out_len,
@@ -752,7 +772,8 @@ def main():
     (run_dir / "meta.yaml").write_text(yaml.safe_dump(meta_out), encoding="utf-8")
 
     print(f"\nSaved joint model to {run_dir}")
-    print(f"Best epoch: {best_epoch}  |  Best val combined: {best_val:.5f}")
+    best_val_str = f"{best_val:.5f}" if best_val is not None else "N/A (no val set)"
+    print(f"Best epoch: {best_epoch}  |  Best val combined: {best_val_str}")
     if _wandb is not None:
         _wandb.summary.update({"best_val_combined": best_val, "trained_epochs": trained_epochs, "best_epoch": best_epoch, "run_id": run_id})
         _wandb.finish()
