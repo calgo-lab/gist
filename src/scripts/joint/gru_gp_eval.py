@@ -95,8 +95,10 @@ def _build_windows(df, in_len, out_len, cov_cols, well_stats, well_static, targe
     return x_past, x_future, y, x_static, meta
 
 
-def _nse(pred, real):
-    denom = float(np.sum((real - np.mean(real)) ** 2))
+def _nse(pred, real, y_bar=None):
+    if y_bar is None:
+        y_bar = np.mean(real)
+    denom = float(np.sum((real - y_bar) ** 2))
     return float("nan") if denom == 0 else float(1 - np.sum((pred - real) ** 2) / denom)
 
 
@@ -115,7 +117,7 @@ def main():
     parser.add_argument("--run-sig", default=None, help="Joint run signature (auto-resolved from config if omitted)")
     parser.add_argument("--split", default="test", choices=["val", "test"],
                         help="Which spatial split to evaluate: 'val' (spatial_val) or 'test' (spatial_test, default)")
-    parser.add_argument("--date-freq", default="ME", help="Resample freq for evaluation dates (default: ME = monthly)")
+    parser.add_argument("--date-freq", default="D", help="Resample freq for evaluation dates (default: D = daily/all unique dates)")
     parser.add_argument("--eval-batch-size", type=int, default=512, help="GRU inference batch size per date")
     args = parser.parse_args()
 
@@ -254,6 +256,13 @@ def main():
 
     eval_gws = gws_full[gws_full["id"].isin(eval_ids)][["datum", "id", "gws"]].dropna(subset=["gws"])
 
+    eval_train_gws = gws_full[
+        gws_full["id"].isin(eval_ids) & (gws_full["datum"] < TRAIN_CUTOFF)
+    ][["id", "gws"]].dropna(subset=["gws"])
+    train_means = eval_train_gws.groupby("id")["gws"].mean().to_dict()
+    pooled_train_mean = float(eval_train_gws["gws"].mean()) if len(eval_train_gws) > 0 else None
+    print(f"Train-period means computed for {len(train_means)} eval wells (used as NSE denominator baseline).")
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
 
@@ -371,16 +380,21 @@ def main():
     abs_err = np.abs(pred_all - real_all)
 
     per_id_nse = []
+    per_id_rmse_vals = []
     for wid, g in out_df.groupby("id"):
-        per_id_nse.append({"id": wid, "NSE_over_time": _nse(g["gws_forecast"].to_numpy(), g["gws_true"].to_numpy())})
+        per_id_nse.append({"id": wid, "NSE_over_time": _nse(g["gws_forecast"].to_numpy(), g["gws_true"].to_numpy(), y_bar=train_means.get(wid))})
+        per_id_rmse_vals.append(float(np.sqrt(np.mean((g["gws_forecast"].to_numpy() - g["gws_true"].to_numpy()) ** 2))))
+    rmse_pw = float(np.median(per_id_rmse_vals)) if per_id_rmse_vals else float("nan")
+    print(f"  RMSE_pw: {rmse_pw:.4f}")
     per_id_nse_df = pd.DataFrame(per_id_nse)
     per_id_valid = per_id_nse_df["NSE_over_time"].to_numpy(dtype=float)
     per_id_valid = per_id_valid[np.isfinite(per_id_valid)]
 
     overall = {
         "RMSE": _rmse(pred_all, real_all),
+        "RMSE_pw": rmse_pw,
         "nRMSE": _nrmse(pred_all, real_all),
-        "NSE_pooled": _nse(pred_all, real_all),
+        "NSE_pooled": _nse(pred_all, real_all, y_bar=pooled_train_mean),
         "NSE_id_median": float(np.median(per_id_valid)) if per_id_valid.size else float("nan"),
         "NSE_id_p25": float(np.percentile(per_id_valid, 25)) if per_id_valid.size else float("nan"),
         "NSE_id_p50": float(np.percentile(per_id_valid, 50)) if per_id_valid.size else float("nan"),
@@ -401,7 +415,7 @@ def main():
             "n": len(real),
             "RMSE": _rmse(pv, real),
             "nRMSE": _nrmse(pv, real),
-            "NSE": _nse(pv, real),
+            "NSE": _nse(pv, real, y_bar=pooled_train_mean),
             "MAE": float(np.mean(np.abs(pv - real))),
         })
     per_h_df = pd.DataFrame(per_h_rows).sort_values("horizon")
