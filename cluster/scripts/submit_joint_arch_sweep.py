@@ -18,11 +18,6 @@ AFFINITY = """
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
             - matchExpressions:
-              - key: kubernetes.io/hostname
-                operator: NotIn
-                values:
-                - cl-worker24
-                - cl-worker27
               - key: gpu
                 operator: In
                 values:
@@ -40,8 +35,10 @@ from pathlib import Path
 SPLIT_FILE = Path("{SPLIT_FILE}")
 if SPLIT_FILE.exists():
     split = pd.read_csv(SPLIT_FILE)
-    print(f"Split exists: {{(split.spatial_split=='spatial_train').sum()}} train / {{(split.spatial_split=='spatial_holdout').sum()}} holdout — skipping.")
-    exit(0)
+    if "spatial_val" in split["spatial_split"].values:
+        print(f"Split exists: {{(split.spatial_split=='spatial_train').sum()}} train / {{(split.spatial_split=='spatial_val').sum()}} val / {{(split.spatial_split=='spatial_holdout').sum()}} holdout — skipping.")
+        exit(0)
+    print("Split exists but missing spatial_val — recreating.")
 
 gws  = pd.read_parquet("/storage/data/merged.parquet")
 meta = gws.groupby("id").agg(x=("x_25833","first"), y=("y_25833","first")).reset_index()
@@ -52,15 +49,18 @@ for i, j in tree.query_pairs(r=8.0):
     co_located.add(meta.iloc[j]["id"])
 print(f"Co-located forced to train: {{len(co_located)}}")
 eligible = meta[~meta["id"].isin(co_located)]["id"].values
-print(f"Eligible for holdout: {{len(eligible)}}")
+print(f"Eligible for holdout/val: {{len(eligible)}}")
 
 rng = np.random.default_rng({SS})
-holdout_ids = set(rng.choice(eligible, size=52, replace=False).tolist())
+shuffled = rng.permutation(eligible)
+holdout_ids = set(shuffled[:52].tolist())
+val_ids     = set(shuffled[52:78].tolist())
 
 split = pd.DataFrame({{"id": meta["id"].tolist()}})
 split["spatial_split"] = "spatial_train"
 split.loc[split["id"].isin(holdout_ids), "spatial_split"] = "spatial_holdout"
-print(f"Split: {{(split.spatial_split=='spatial_train').sum()}} train / {{(split.spatial_split=='spatial_holdout').sum()}} holdout")
+split.loc[split["id"].isin(val_ids),     "spatial_split"] = "spatial_val"
+print(f"Split: {{(split.spatial_split=='spatial_train').sum()}} train / {{(split.spatial_split=='spatial_val').sum()}} val / {{(split.spatial_split=='spatial_holdout').sum()}} holdout")
 SPLIT_FILE.parent.mkdir(exist_ok=True)
 split.to_csv(SPLIT_FILE, index=False)
 print(f"Saved: {{SPLIT_FILE}}")
