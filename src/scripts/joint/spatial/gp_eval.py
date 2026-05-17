@@ -250,12 +250,14 @@ def main():
 
     gp_features = list(gp_cfg.get("gp_features", []))
     gp_features_onehot = list(gp_cfg.get("gp_features_onehot", []))
+    gp_dynamic_features = list(gp_cfg.get("gp_dynamic_features", []))
 
-    cols = ["datum", "id", "gws", "x_25833", "y_25833"]
+    base_cols = ["datum", "id", "gws", "x_25833", "y_25833"]
+    dyn_load_cols = base_cols + [c for c in gp_dynamic_features if c not in base_cols]
     gws = (
-        pd.read_csv(data_path, usecols=cols, low_memory=False)
+        pd.read_csv(data_path, usecols=dyn_load_cols, low_memory=False)
         if str(data_path).lower().endswith(".csv")
-        else pq.read_table(data_path, columns=cols).to_pandas()
+        else pq.read_table(data_path, columns=dyn_load_cols).to_pandas()
     )
     gws["datum"] = pd.to_datetime(gws["datum"])
 
@@ -279,8 +281,17 @@ def main():
             dummies = pd.get_dummies(coords[f], prefix=f, drop_first=True).astype(float)
             onehot_cols.extend(dummies.columns.tolist())
             coords = pd.concat([coords.drop(columns=[f]), dummies], axis=1)
-    feature_cols = ["x_25833", "y_25833"] + gp_features + onehot_cols
+    feature_cols = ["x_25833", "y_25833"] + gp_features + onehot_cols + gp_dynamic_features
     pred = pred.merge(coords, on="id", how="left")
+
+    # Merge dynamic features (per id × datum) into pred and keep dyn_df for holdout joins
+    if gp_dynamic_features:
+        dyn_df = gws[["id", "datum"] + gp_dynamic_features].copy()
+        for c in gp_dynamic_features:
+            dyn_df[c] = pd.to_numeric(dyn_df[c], errors="coerce")
+        pred = pred.merge(dyn_df, on=["id", "datum"], how="left")
+    else:
+        dyn_df = None
 
     all_dates = pred["datum"].drop_duplicates().sort_values()
     dates = pd.Series(all_dates.values, index=all_dates).resample(args.date_freq).first().dropna().tolist()
@@ -293,9 +304,13 @@ def main():
     print(f"Dates ({len(dates)}): {[str(d.date()) for d in dates[:4]]} ...")
     print(f"Horizons: {horizons}")
 
-    coords_arr = coords.set_index("id")
-    train_coords_df = coords_arr.loc[coords_arr.index.isin(train_ids)]
-    feature_scaler = StandardScaler().fit(train_coords_df[feature_cols].to_numpy())
+    if gp_dynamic_features:
+        # Fit scaler on all training prediction rows (spans all dates, captures dynamic range)
+        train_feat_df = pred[pred["id"].isin(train_ids)].dropna(subset=feature_cols)
+    else:
+        coords_arr = coords.set_index("id")
+        train_feat_df = coords_arr.loc[coords_arr.index.isin(train_ids)].reset_index()
+    feature_scaler = StandardScaler().fit(train_feat_df[feature_cols].to_numpy())
     n_dims = len(feature_cols)
 
     out_rows = []
@@ -351,6 +366,9 @@ def main():
             holdout_true = gws_dt[gws_dt["id"].isin(holdout_ids)].dropna(subset=["gws", "x_25833", "y_25833"])
             if gp_features or onehot_cols:
                 holdout_true = holdout_true.merge(coords[["id"] + gp_features + onehot_cols], on="id", how="left")
+            if gp_dynamic_features and dyn_df is not None:
+                dyn_dt = dyn_df[dyn_df["datum"] == dt][["id"] + gp_dynamic_features]
+                holdout_true = holdout_true.merge(dyn_dt, on="id", how="left")
             if holdout_true.empty:
                 skipped.append((dt, h, "no holdout obs"))
                 continue
