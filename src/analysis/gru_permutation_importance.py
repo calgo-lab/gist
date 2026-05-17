@@ -132,6 +132,8 @@ def main():
     parser.add_argument("--n-repeats", type=int, default=5,
                         help="Number of permutation draws per feature (results are averaged)")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--dynamic-only", action="store_true",
+                        help="Skip static feature permutation; run only dynamic covariates")
     args = parser.parse_args()
 
     rng = np.random.default_rng(args.seed)
@@ -237,8 +239,11 @@ def main():
     zeroed = _nrmse_pw(pred_zero, y, meta, well_stats, df_ranges)
     print(f"All-zeroed nRMSE_pw: {zeroed:.4f}  (delta={zeroed - baseline:+.4f})")
 
+    # --- Static feature permutation ---
     results = []
-    for fi, feat in enumerate(static_cols):
+    if args.dynamic_only:
+        print("--dynamic-only: skipping static feature permutation")
+    for fi, feat in enumerate(static_cols if not args.dynamic_only else []):
         deltas = []
         for _ in range(args.n_repeats):
             xs_perm = x_static.copy()
@@ -249,8 +254,28 @@ def main():
             deltas.append(nrmse_perm - baseline)
         delta = float(np.mean(deltas))
         pct = delta / baseline * 100
-        results.append({"feature": feat, "delta_nrmse_pw": delta, "pct_change": pct})
+        results.append({"feature": feat, "feature_type": "static", "delta_nrmse_pw": delta, "pct_change": pct})
         print(f"  [{fi+1:2d}/{len(static_cols)}] {feat}: delta={delta:+.4f} ({pct:+.1f}%)")
+
+    # --- Dynamic feature permutation ---
+    # Each dynamic feature is permuted across the window dimension (effectively across wells),
+    # with the same permutation applied to both past and future covariate windows.
+    print(f"\n--- Dynamic feature permutation ({len(COV_COLS)} features) ---")
+    for fi, feat in enumerate(COV_COLS):
+        deltas = []
+        for _ in range(args.n_repeats):
+            perm_idx = rng.permutation(len(x_past_s))
+            xp_perm = x_past_s.copy()
+            xp_perm[:, :, 1 + fi] = x_past_s[perm_idx, :, 1 + fi]
+            xf_perm = x_future_s.copy()
+            xf_perm[:, :, fi] = x_future_s[perm_idx, :, fi]
+            pred_perm = _run_inference(model, xp_perm, xf_perm, x_static, device)
+            nrmse_perm = _nrmse_pw(pred_perm, y, meta, well_stats, df_ranges)
+            deltas.append(nrmse_perm - baseline)
+        delta = float(np.mean(deltas))
+        pct = delta / baseline * 100
+        results.append({"feature": feat, "feature_type": "dynamic", "delta_nrmse_pw": delta, "pct_change": pct})
+        print(f"  [{fi+1}/{len(COV_COLS)}] {feat}: delta={delta:+.4f} ({pct:+.1f}%)")
 
     results.sort(key=lambda r: r["delta_nrmse_pw"], reverse=True)
 
@@ -258,27 +283,28 @@ def main():
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     lines = [
-        f"# GRU Static Feature Permutation Importance (Run {args.run_id})",
+        f"# GRU Feature Permutation Importance (Run {args.run_id})",
         "",
         f"**Model**: GRU_FCOV_{args.run_id}",
         f"**Split**: all 1040 wells, temporal test period (post-2020-01-01)",
         f"**Metric**: median nRMSE_pw (range-normalised per-well RMSE)",
         f"**Baseline nRMSE_pw**: {baseline:.4f}",
-        f"**All-zeroed nRMSE_pw**: {zeroed:.4f} (delta={zeroed - baseline:+.4f})",
+        f"**All-static-zeroed nRMSE_pw**: {zeroed:.4f} (delta={zeroed - baseline:+.4f})",
         f"**n_repeats**: {args.n_repeats} (results averaged over permutation draws)",
         "",
-        "| Rank | Feature | Delta nRMSE_pw | % Change |",
-        "|------|---------|----------------|----------|",
+        "| Rank | Type | Feature | Delta nRMSE_pw | % Change |",
+        "|------|------|---------|----------------|----------|",
     ]
     for rank, r in enumerate(results, 1):
         lines.append(
-            f"| {rank} | {r['feature']} | {r['delta_nrmse_pw']:+.4f} | {r['pct_change']:+.1f}% |"
+            f"| {rank} | {r['feature_type']} | {r['feature']} | {r['delta_nrmse_pw']:+.4f} | {r['pct_change']:+.1f}% |"
         )
     lines += [
         "",
         "## Summary",
-        f"- Delta > 0: feature helps (shuffling it hurts performance)",
-        f"- Delta < 0: feature hurts (model uses it wrong or adds noise)",
+        "- Delta > 0: feature helps (shuffling it hurts performance)",
+        "- Delta < 0: feature hurts (model uses it wrong or adds noise)",
+        "- Dynamic features are permuted across windows (shuffling weather sequences across wells).",
     ]
 
     out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
