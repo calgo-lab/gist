@@ -8,7 +8,7 @@ import torch.nn as nn
 def matern32_kernel(X1, X2, length_scale, output_scale):
     diff = X1.unsqueeze(1) - X2.unsqueeze(0)
     r2 = (diff / length_scale).pow(2).sum(-1)
-    r = r2.clamp(min=0).sqrt()
+    r = (r2 + 1e-8).sqrt()  # epsilon avoids undefined gradient at r=0
     sqrt3r = math.sqrt(3) * r
     return output_scale.pow(2) * (1.0 + sqrt3r) * torch.exp(-sqrt3r)
 
