@@ -51,7 +51,7 @@ def default_gru_sig(gru_cfg):
 def run_gp(gru_run_sig, gp_run_tag, pretrain_steps, pretrain_lr, max_pretrain_pts,
            date_freq, jitter,
            variational_lr=1e-2, use_float64=True,
-           model_prefix="GRU_FCOV"):
+           model_prefix="GRU_FCOV", gp_config=""):
     cmd = [
         PY, str(GP_EVAL),
         "--gru-run-sig", str(gru_run_sig),
@@ -65,6 +65,8 @@ def run_gp(gru_run_sig, gp_run_tag, pretrain_steps, pretrain_lr, max_pretrain_pt
         "--use-float64", str(use_float64).lower(),
         "--model-prefix", str(model_prefix),
     ]
+    if gp_config:
+        cmd += ["--config", str(gp_config)]
     subprocess.run(cmd, check=True, env=os.environ.copy())
     run_tag = f"{model_prefix}_{gru_run_sig}__{gp_run_tag}__predobstrain"
     return ROOT / "outputs" / "gp" / run_tag
@@ -108,6 +110,7 @@ def main():
     max_trials = int(hpo_cfg.get("max_trials", 12))
     random_seed = int(hpo_cfg.get("random_seed", 42))
     hpo_name = str(hpo_cfg.get("name", "gp_hpo"))
+    gp_config_path = str(hpo_cfg.get("gp_config", "")).strip()
 
     keys = sorted(search_space.keys())
     vals = [search_space[k] for k in keys]
@@ -131,7 +134,7 @@ def main():
         pretrain_steps = int(cfg.get("pretrain_steps", 200))
         pretrain_lr = float(cfg.get("pretrain_lr", 1e-2))
         max_pretrain_pts = int(cfg.get("max_pretrain_pts", 2000))
-        date_freq = str(cfg.get("date_freq", "ME"))
+        date_freq = str(cfg.get("date_freq", "D"))
         jitter = float(cfg.get("jitter", 1e-5))
         variational_lr = float(cfg.get("variational_lr", 1e-2))
         use_float64 = cfg.get("use_float64", True)
@@ -147,6 +150,7 @@ def main():
                 date_freq, jitter,
                 variational_lr=variational_lr,
                 use_float64=use_float64, model_prefix=model_prefix,
+                gp_config=gp_config_path,
             )
             obj = read_metric(run_dir, metric_name)
         except Exception as e:
