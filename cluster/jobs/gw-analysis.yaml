@@ -1,66 +1,54 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: gw-gp-spatial-a100
+  name: gw-analysis
   labels:
-    app: gw-gp-spatial
+    app: gw-analysis
 spec:
   backoffLimit: 0
   ttlSecondsAfterFinished: 86400
   template:
     metadata:
       labels:
-        app: gw-gp-spatial
+        app: gw-analysis
     spec:
       restartPolicy: Never
-      nodeSelector:
-        gpu: a100
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
             - matchExpressions:
-              - key: kubernetes.io/hostname
+              - key: gpu
                 operator: NotIn
                 values:
-                - cl-worker24
+                - k80
+                - p100
+                - b200
+                - "false"
       volumes:
       - name: gw-pred-rwx
         persistentVolumeClaim:
           claimName: gw-pred-rwx
-      - name: dshm
-        emptyDir:
-          medium: Memory
-          sizeLimit: "8Gi"
       containers:
-      - name: gp-spatial
+      - name: gw-analysis
         image: row56/gw-pred:py312-cu124
         imagePullPolicy: Always
         resources:
           requests:
             cpu: "8"
-            memory: 32Gi
-            nvidia.com/gpu: 1
+            memory: 40Gi
           limits:
-            memory: 32Gi
-            nvidia.com/gpu: 1
+            memory: 40Gi
         env:
         - name: PYTHONUNBUFFERED
           value: "1"
         volumeMounts:
         - name: gw-pred-rwx
           mountPath: /storage
-        - name: dshm
-          mountPath: /dev/shm
         command: ["bash", "-lc"]
         args:
         - |
           set -euo pipefail
           source /storage/venv/bin/activate
           cd /storage/gwl-interpolation
-
-          mkdir -p reports/gp/logs
-          {
-            echo "=== GP EVAL ==="
-            time python src/scripts/joint/spatial/gp_eval.py --config configs/gp/gp.yaml
-          } 2>&1 | tee "reports/gp/logs/gp_eval.log"
+          python src/analysis/<script>.py

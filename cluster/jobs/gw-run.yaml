@@ -1,29 +1,20 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: gw-gru-hpo-a100
+  name: gw-run
   labels:
-    app: gw-gru-hpo
+    app: gw-run
 spec:
   backoffLimit: 0
   ttlSecondsAfterFinished: 86400
   template:
     metadata:
       labels:
-        app: gw-gru-hpo
+        app: gw-run
     spec:
       restartPolicy: Never
       nodeSelector:
         gpu: a100
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-            - matchExpressions:
-              - key: kubernetes.io/hostname
-                operator: NotIn
-                values:
-                - cl-worker24
       volumes:
       - name: gw-pred-rwx
         persistentVolumeClaim:
@@ -33,7 +24,7 @@ spec:
           medium: Memory
           sizeLimit: "16Gi"
       containers:
-      - name: gru-hpo
+      - name: gw-run
         image: row56/gw-pred:py312-cu124
         imagePullPolicy: Always
         resources:
@@ -47,8 +38,8 @@ spec:
         env:
         - name: PYTHONUNBUFFERED
           value: "1"
-        - name: HPO_CONFIG
-          value: "configs/gru/hpo_gru.yaml"
+        - name: EXPERIMENT
+          value: ""
         volumeMounts:
         - name: gw-pred-rwx
           mountPath: /storage
@@ -60,9 +51,4 @@ spec:
           set -euo pipefail
           source /storage/venv/bin/activate
           cd /storage/gwl-interpolation
-
-          mkdir -p reports/gru/hpo/logs
-          {
-            echo "=== GRU HPO ==="
-            time python src/scripts/joint/temporal/gru_runs.py --hpo-config "${HPO_CONFIG}"
-          } 2>&1 | tee "reports/gru/hpo/logs/gru_hpo.log"
+          python src/scripts/pipelines/spatial/gp_eval.py --experiment "$EXPERIMENT"
