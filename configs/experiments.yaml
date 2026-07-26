@@ -1,0 +1,1151 @@
+trueobs_md30_wk:
+  base: configs/gp/gp.yaml
+  script: src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    spatial_split.file: splits/spatial_split_full_merged_coloc_md30_f95_ss42.csv
+    gp_features: [siwa_verweilzeit_j]
+    gp_features_onehot: [hydroraum, gw_gespannt]
+    gru_run_sig: oracle_clean_md30_ss42
+    gp_run_tag: oracle_clean_wk
+    date_freq: D
+    pretrain_steps: 300
+    max_pretrain_pts: 2000
+    pred_path: /tmp/oracle_pred_clean_md30_ss42.parquet
+    model_prefix: ORACLE
+  prebuild:
+    - builder: src/prep/build_coloc_split.py
+      args: {output: splits/spatial_split_full_merged_coloc_md30_f95_ss42.csv, density-percentile: 30, mode: two-way, n-holdout: 52}
+    - builder: src/prep/build_oracle_pred.py
+      args: {split-file: splits/spatial_split_full_merged_coloc_md30_f95_ss42.csv, output: /tmp/oracle_pred_clean_md30_ss42.parquet, well-subset: spatial-train}
+  note: oracle-clean-md30 (daily/wk run)
+
+trueobs_rand_wk:
+  base: configs/gp/gp.yaml
+  script: src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    spatial_split.file: splits/spatial_split_full_merged_coloc_rand_f95_ss42.csv
+    gp_features: [siwa_verweilzeit_j]
+    gp_features_onehot: [hydroraum, gw_gespannt]
+    gru_run_sig: oracle_clean_rand_ss42
+    gp_run_tag: oracle_clean_wk
+    date_freq: D
+    pretrain_steps: 300
+    max_pretrain_pts: 2000
+    pred_path: /tmp/oracle_pred_clean_rand_ss42.parquet
+    model_prefix: ORACLE
+  prebuild:
+    - builder: src/prep/build_coloc_split.py
+      args: {output: splits/spatial_split_full_merged_coloc_rand_f95_ss42.csv, density-percentile: none, mode: two-way, n-holdout: 52}
+    - builder: src/prep/build_oracle_pred.py
+      args: {split-file: splits/spatial_split_full_merged_coloc_rand_f95_ss42.csv, output: /tmp/oracle_pred_clean_rand_ss42.parquet, well-subset: spatial-train}
+  note: oracle-clean-rand
+
+twostage_prod:
+  seeds: "42-81"
+  base: configs/gru/gru.yaml
+  scripts:
+    - src/scripts/pipelines/temporal/gru_train.py
+    - src/scripts/pipelines/temporal/gru_eval.py
+    - src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    run_sig: in52_out16_ep50_bs4096_seed47_coloc_rand90_f90_ss{ss}
+    dataset: full_merged
+    training.seed: 47
+    add_hydroraum_onehot: true
+    spatial_split.file: splits/spatial_split_full_merged_coloc_rand90_f90_ss{ss}.csv
+    spatial_split.train_fraction: 0.90
+    gp_features: []
+    gp_features_onehot: [hydroraum]
+    gru_run_sig: in52_out16_ep50_bs4096_seed47_coloc_rand90_f90_ss{ss}
+    gp_run_tag: dec_prod_hr_gps7
+    gp_seed: 7
+    date_freq: D
+    pretrain_steps: 300
+    max_pretrain_pts: 128
+    variational_lr: 0.0001
+    jitter: 0.00001
+    use_float64: true
+    model_prefix: GRU_FCOV
+  prebuild:
+    - builder: src/prep/build_coloc_split.py
+      args:
+        output: "splits/spatial_split_full_merged_coloc_rand90_f90_ss{ss}.csv"
+        density-percentile: none
+        mode: two-way
+        n-holdout: 104
+        seed: "{ss}"
+  note: submit_multiseed40_decoupled (gru seed 47, gp seed 7, coloc rand90 f90, hydroraum-only, holdout 104)
+
+joint_exact_rand:
+  base: configs/joint/gru_gp.yaml
+  script: src/scripts/pipelines/joint/gru_gp_train.py
+  overrides:
+    run_sig: in52_out16_ep50_seed40_exact3w_rand_ss42
+    spatial_split.file: splits/spatial_split_joint_rand_f95_ss42_3way.csv
+    model.gru_hidden: 128
+    model.gru_layers: 5
+    model.gru_dropout: 0.3
+    spatial_gp.lambda_spatial: 0.034
+    spatial_gp.gp_pretrain_steps: 300
+    spatial_gp.variational_lr: 0.01
+    spatial_gp.max_train_points_per_horizon: 2000
+    spatial_gp.use_float64: true
+    spatial_gp.gp_features: [siwa_verweilzeit_j]
+    spatial_gp.gp_features_onehot: [hydroraum, gw_gespannt]
+    joint.gru_lr: 1.07e-4
+    joint.gp_lr: 1.0e-3
+    joint.min_train_wells: 5
+    joint.min_val_wells: 2
+    joint.val_gp_stride: 4
+  prebuild:
+    - builder: src/prep/build_coloc_split.py
+      args: {output: splits/spatial_split_joint_rand_f95_ss42_3way.csv, density-percentile: none, mode: three-way, n-holdout: 52}
+  note: joint-exact-rand (3-way)
+
+gru_all_train:
+  base: configs/gru/gru.yaml
+  script: src/scripts/pipelines/temporal/gru_train.py
+  overrides:
+    run_sig: in52_out16_ep50_bs4096_seed40_full_merged_all_train
+    spatial_split.file: splits/all_train.csv
+  note: gru-all-train
+
+global_gru:
+  base: configs/gru/gru.yaml
+  script: src/scripts/pipelines/temporal/gru_train.py
+  overrides:
+    run_sig: in52_out16_ep50_bs4096_seed40_global
+    training.seed: 40
+    spatial_split.train_fraction: 1.0
+  note: global-gru
+
+gp_default:
+  base: configs/gp/gp.yaml
+  script: src/scripts/pipelines/spatial/gp_eval.py
+  overrides: {}
+  note: gp-job (gp.yaml as-is, gok features)
+
+joint_default:
+  base: configs/joint/gru_gp.yaml
+  script: src/scripts/pipelines/joint/gru_gp_train.py
+  overrides: {}
+  note: joint-job (gru_gp.yaml as-is)
+
+trueobs_md50_wk:
+  base: configs/gp/gp.yaml
+  script: src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    spatial_split.file: splits/spatial_split_full_merged_coloc_md50_f95_ss42.csv
+    gp_features: [siwa_verweilzeit_j]
+    gp_features_onehot: [hydroraum, gw_gespannt]
+    gru_run_sig: oracle_clean_md50_ss42
+    gp_run_tag: oracle_clean_wk
+    date_freq: D
+    pretrain_steps: 300
+    max_pretrain_pts: 2000
+    pred_path: /tmp/oracle_pred_clean_md50_ss42.parquet
+    model_prefix: ORACLE
+  prebuild:
+    - builder: src/prep/build_coloc_split.py
+      args: {output: splits/spatial_split_full_merged_coloc_md50_f95_ss42.csv, density-percentile: 50, mode: two-way, n-holdout: 52}
+    - builder: src/prep/build_oracle_pred.py
+      args: {split-file: splits/spatial_split_full_merged_coloc_md50_f95_ss42.csv, output: /tmp/oracle_pred_clean_md50_ss42.parquet, well-subset: spatial-train}
+  note: oracle-clean-md50 (daily/wk run)
+
+trueobs_md30_me:
+  base: configs/gp/gp.yaml
+  script: src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    spatial_split.file: splits/spatial_split_full_merged_coloc_md30_f95_ss42.csv
+    gp_features: [siwa_verweilzeit_j]
+    gp_features_onehot: [hydroraum, gw_gespannt]
+    gru_run_sig: oracle_clean_md30_ss42
+    gp_run_tag: oracle_clean_me
+    date_freq: ME
+    pretrain_steps: 300
+    max_pretrain_pts: 2000
+    pred_path: /tmp/oracle_pred_clean_md30_ss42.parquet
+    model_prefix: ORACLE
+  prebuild:
+    - builder: src/prep/build_coloc_split.py
+      args: {output: splits/spatial_split_full_merged_coloc_md30_f95_ss42.csv, density-percentile: 30, mode: two-way, n-holdout: 52}
+    - builder: src/prep/build_oracle_pred.py
+      args: {split-file: splits/spatial_split_full_merged_coloc_md30_f95_ss42.csv, output: /tmp/oracle_pred_clean_md30_ss42.parquet, well-subset: spatial-train}
+  note: monthly sibling of trueobs_md30_wk
+
+trueobs_rand_me:
+  base: configs/gp/gp.yaml
+  script: src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    spatial_split.file: splits/spatial_split_full_merged_coloc_rand_f95_ss42.csv
+    gp_features: [siwa_verweilzeit_j]
+    gp_features_onehot: [hydroraum, gw_gespannt]
+    gru_run_sig: oracle_clean_rand_ss42
+    gp_run_tag: oracle_clean_me
+    date_freq: ME
+    pretrain_steps: 300
+    max_pretrain_pts: 2000
+    pred_path: /tmp/oracle_pred_clean_rand_ss42.parquet
+    model_prefix: ORACLE
+  prebuild:
+    - builder: src/prep/build_coloc_split.py
+      args: {output: splits/spatial_split_full_merged_coloc_rand_f95_ss42.csv, density-percentile: none, mode: two-way, n-holdout: 52}
+    - builder: src/prep/build_oracle_pred.py
+      args: {split-file: splits/spatial_split_full_merged_coloc_rand_f95_ss42.csv, output: /tmp/oracle_pred_clean_rand_ss42.parquet, well-subset: spatial-train}
+  note: monthly sibling of trueobs_rand_wk
+
+trueobs_md50_me:
+  base: configs/gp/gp.yaml
+  script: src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    spatial_split.file: splits/spatial_split_full_merged_coloc_md50_f95_ss42.csv
+    gp_features: [siwa_verweilzeit_j]
+    gp_features_onehot: [hydroraum, gw_gespannt]
+    gru_run_sig: oracle_clean_md50_ss42
+    gp_run_tag: oracle_clean_me
+    date_freq: ME
+    pretrain_steps: 300
+    max_pretrain_pts: 2000
+    pred_path: /tmp/oracle_pred_clean_md50_ss42.parquet
+    model_prefix: ORACLE
+  prebuild:
+    - builder: src/prep/build_coloc_split.py
+      args: {output: splits/spatial_split_full_merged_coloc_md50_f95_ss42.csv, density-percentile: 50, mode: two-way, n-holdout: 52}
+    - builder: src/prep/build_oracle_pred.py
+      args: {split-file: splits/spatial_split_full_merged_coloc_md50_f95_ss42.csv, output: /tmp/oracle_pred_clean_md50_ss42.parquet, well-subset: spatial-train}
+  note: monthly sibling of trueobs_md50_wk
+
+trueobs_3w_rand:
+  base: configs/gp/gp.yaml
+  script: src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    spatial_split.file: splits/spatial_split_joint_rand_f95_ss42_3way.csv
+    gp_features: [siwa_verweilzeit_j]
+    gp_features_onehot: [hydroraum, gw_gespannt]
+    gru_run_sig: oracle_exact3w_rand_ss42
+    gp_run_tag: oracle3w
+    date_freq: D
+    pretrain_steps: 300
+    max_pretrain_pts: 2000
+    pred_path: /tmp/oracle_pred_3w_rand_ss42.parquet
+    model_prefix: ORACLE
+  prebuild:
+    - builder: src/prep/build_coloc_split.py
+      args: {output: splits/spatial_split_joint_rand_f95_ss42_3way.csv, density-percentile: none, mode: three-way, n-holdout: 52}
+    - builder: src/prep/build_oracle_pred.py
+      args: {split-file: splits/spatial_split_joint_rand_f95_ss42_3way.csv, output: /tmp/oracle_pred_3w_rand_ss42.parquet, well-subset: spatial-train}
+  note: oracle-3w-rand; --set gp_run_tag=oracle3w_wk reproduces the wk-tagged record runs
+
+trueobs_3w_md30:
+  base: configs/gp/gp.yaml
+  script: src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    spatial_split.file: splits/spatial_split_joint_md30_f95_ss42_3way.csv
+    gp_features: [siwa_verweilzeit_j]
+    gp_features_onehot: [hydroraum, gw_gespannt]
+    gru_run_sig: oracle_exact3w_md30_ss42
+    gp_run_tag: oracle3w
+    date_freq: D
+    pretrain_steps: 300
+    max_pretrain_pts: 2000
+    pred_path: /tmp/oracle_pred_3w_md30_ss42.parquet
+    model_prefix: ORACLE
+  prebuild:
+    - builder: src/prep/build_coloc_split.py
+      args: {output: splits/spatial_split_joint_md30_f95_ss42_3way.csv, density-percentile: 30, mode: three-way, n-holdout: 52}
+    - builder: src/prep/build_oracle_pred.py
+      args: {split-file: splits/spatial_split_joint_md30_f95_ss42_3way.csv, output: /tmp/oracle_pred_3w_md30_ss42.parquet, well-subset: spatial-train}
+  note: oracle-3w-md30; --set gp_run_tag=oracle3w_wk reproduces the wk-tagged record runs
+
+joint_exact_md30:
+  base: configs/joint/gru_gp.yaml
+  script: src/scripts/pipelines/joint/gru_gp_train.py
+  overrides:
+    run_sig: in52_out16_ep50_seed40_exact3w_md30_ss42
+    spatial_split.file: splits/spatial_split_joint_md30_f95_ss42_3way.csv
+    model.gru_hidden: 128
+    model.gru_layers: 5
+    model.gru_dropout: 0.3
+    spatial_gp.lambda_spatial: 0.034
+    spatial_gp.gp_pretrain_steps: 300
+    spatial_gp.variational_lr: 0.01
+    spatial_gp.max_train_points_per_horizon: 2000
+    spatial_gp.use_float64: true
+    spatial_gp.gp_features: [siwa_verweilzeit_j]
+    spatial_gp.gp_features_onehot: [hydroraum, gw_gespannt]
+    joint.gru_lr: 1.07e-4
+    joint.gp_lr: 1.0e-3
+    joint.min_train_wells: 5
+    joint.min_val_wells: 2
+    joint.val_gp_stride: 4
+  prebuild:
+    - builder: src/prep/build_coloc_split.py
+      args: {output: splits/spatial_split_joint_md30_f95_ss42_3way.csv, density-percentile: 30, mode: three-way, n-holdout: 52}
+  note: joint-exact-md30
+
+joint_hr_entlastung:
+  base: configs/joint/gru_gp.yaml
+  script: src/scripts/pipelines/joint/gru_gp_train.py
+  overrides:
+    run_sig: in52_out16_ep50_seed40_full_merged_lsp0p001_hr_entlastung
+    hydroraum_filter: Entlastungsgebiete
+    spatial_gp.lambda_spatial: 0.001
+  note: joint-hr-entlastung
+
+joint_hr_speisung:
+  base: configs/joint/gru_gp.yaml
+  script: src/scripts/pipelines/joint/gru_gp_train.py
+  overrides:
+    run_sig: in52_out16_ep50_seed40_full_merged_lsp0p001_hr_speisung
+    hydroraum_filter: Speisungsgebiete
+    spatial_gp.lambda_spatial: 0.001
+    spatial_split.cluster_count: 10
+  note: joint-hr-speisung
+
+joint_hr_transit:
+  base: configs/joint/gru_gp.yaml
+  script: src/scripts/pipelines/joint/gru_gp_train.py
+  overrides:
+    run_sig: in52_out16_ep50_seed40_full_merged_lsp0p001_hr_transit
+    hydroraum_filter: Transitgebiete
+    spatial_gp.lambda_spatial: 0.001
+  note: joint-hr-transit
+
+gru_gok_only:
+  base: configs/gru/gru.yaml
+  script: src/scripts/pipelines/temporal/gru_train.py
+  overrides:
+    run_sig: in52_out16_ep50_bs4096_seed40_full_merged_spf0p8_gok_only
+    exclude_static_features: [TWI_dgm50_r1000m, parde_seasonality, GW_recharge_r1000m, gw_gespannt_bin]
+  note: gru-gok-only (only gok kept)
+
+gru_hydroraum_only:
+  base: configs/gru/gru.yaml
+  script: src/scripts/pipelines/temporal/gru_train.py
+  overrides:
+    run_sig: in52_out16_ep50_bs4096_seed40_full_merged_spf0p8_hydroraum_only
+    add_hydroraum_onehot: true
+    exclude_static_features: [TWI_dgm50_r1000m, gok, parde_seasonality, GW_recharge_r1000m, gw_gespannt_bin]
+  note: gru-hydroraum-only (hydroraum one-hot only)
+
+trueobs_ms_rand:
+  seeds: "42-51"
+  base: configs/gp/gp.yaml
+  script: src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    spatial_split.file: splits/spatial_split_full_merged_coloc_rand_f95_ss{ss}.csv
+    gp_features: [siwa_verweilzeit_j]
+    gp_features_onehot: [hydroraum, gw_gespannt]
+    gru_run_sig: oracle_coloc_rand_f95_ss{ss}
+    gp_run_tag: oracle_ms_gps1
+    gp_seed: 1
+    date_freq: D
+    pretrain_steps: 300
+    max_pretrain_pts: 2000
+    jitter: 0.00001
+    use_float64: true
+    pred_path: /tmp/oracle_pred_coloc_rand_f95_ss{ss}.parquet
+    model_prefix: ORACLE
+  prebuild:
+    - builder: src/prep/build_coloc_split.py
+      args: {output: "splits/spatial_split_full_merged_coloc_rand_f95_ss{ss}.csv", density-percentile: none, mode: two-way, n-holdout: 52, seed: "{ss}"}
+    - builder: src/prep/build_oracle_pred.py
+      args: {split-file: "splits/spatial_split_full_merged_coloc_rand_f95_ss{ss}.csv", output: "/tmp/oracle_pred_coloc_rand_f95_ss{ss}.parquet", well-subset: spatial-train}
+  note: submit_oracle_coloc_multiseed rand half. thesis ran gp seeds 1,2,3 per split - relaunch gps2/3 via --set gp_seed=2 gp_run_tag=oracle_ms_gps2
+
+trueobs_ms_md30:
+  seeds: "42-51"
+  base: configs/gp/gp.yaml
+  script: src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    spatial_split.file: splits/spatial_split_full_merged_coloc_md30_f95_ss{ss}.csv
+    gp_features: [siwa_verweilzeit_j]
+    gp_features_onehot: [hydroraum, gw_gespannt]
+    gru_run_sig: oracle_coloc_md30_f95_ss{ss}
+    gp_run_tag: oracle_ms_gps1
+    gp_seed: 1
+    date_freq: D
+    pretrain_steps: 300
+    max_pretrain_pts: 2000
+    jitter: 0.00001
+    use_float64: true
+    pred_path: /tmp/oracle_pred_coloc_md30_f95_ss{ss}.parquet
+    model_prefix: ORACLE
+  prebuild:
+    - builder: src/prep/build_coloc_split.py
+      args: {output: "splits/spatial_split_full_merged_coloc_md30_f95_ss{ss}.csv", density-percentile: 30, mode: two-way, n-holdout: 52, seed: "{ss}"}
+    - builder: src/prep/build_oracle_pred.py
+      args: {split-file: "splits/spatial_split_full_merged_coloc_md30_f95_ss{ss}.csv", output: "/tmp/oracle_pred_coloc_md30_f95_ss{ss}.parquet", well-subset: spatial-train}
+  note: submit_oracle_coloc_multiseed md30 half. gp seeds 1,2,3 as above
+
+joint_prod:
+  seeds: "42-81"
+  base: configs/joint/gru_gp.yaml
+  script: src/scripts/pipelines/joint/gru_gp_train.py
+  overrides:
+    run_sig: joint_in52_out16_ep50_seed44_coloc_rand90_f90_joint_ss{ss}
+    training.seed: 44
+    training.early_stopping.patience: 15
+    spatial_split.file: splits/spatial_split_full_merged_coloc_rand90_f90_joint_ss{ss}.csv
+    spatial_split.split_seed: "{ss}"
+    spatial_split.coloc_split_type: rand
+    spatial_gp.jitter: 0.00001
+    spatial_gp.lambda_spatial: 0.0001
+    spatial_gp.gp_pretrain_steps: 300
+    spatial_gp.gp_features: []
+    spatial_gp.gp_features_onehot: [hydroraum]
+    joint.n_gp_dates: 9999
+    joint.gp_lr: 1.0e-3
+  note: submit_multiseed40_joint - 40-seed joint production (model seed 44, committed _joint splits, no prebuild); seed-40 sibling via --set training.seed=40 run_sig=joint_in52_out16_ep50_seed40_coloc_rand90_f90_joint_ss{ss}
+
+trueobs_prod:
+  seeds: "42-81"
+  base: configs/gp/gp.yaml
+  script: src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    spatial_split.file: splits/spatial_split_full_merged_coloc_rand90_f90_ss{ss}.csv
+    gp_features: []
+    gp_features_onehot: [hydroraum]
+    gru_run_sig: oracle_coloc_rand90_f90_ss{ss}
+    gp_run_tag: oracle_prod_hr_gps7
+    gp_seed: 7
+    date_freq: D
+    pretrain_steps: 300
+    max_pretrain_pts: 128
+    variational_lr: 0.0001
+    jitter: 0.00001
+    use_float64: true
+    pred_path: /tmp/oracle_ms40_ss{ss}.parquet
+    model_prefix: ORACLE
+  prebuild:
+    - builder: src/prep/build_oracle_pred.py
+      args: {split-file: "splits/spatial_split_full_merged_coloc_rand90_f90_ss{ss}.csv", output: "/tmp/oracle_ms40_ss{ss}.parquet", well-subset: spatial-train}
+  note: submit_multiseed40_oracle - 40-seed true-obs production (gp seed 7, committed splits)
+
+# fairness / matched-LR reruns (jul 2026): GP refit at variational_lr 0.01 / 2000 pts
+# to match joint's pretrain LR; hr = with hydroraum onehot, nohr = coords-only.
+# outputs on PVC: outputs/gp/*__{dec,oracle}_prod_{hr,nohr}_lr01_gps7__*
+twostage_ms40_hr_lr01:
+  seeds: "42-81"
+  base: configs/gp/gp.yaml
+  script: src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    spatial_split.file: splits/spatial_split_full_merged_coloc_rand90_f90_ss{ss}.csv
+    gp_features: []
+    gp_features_onehot: [hydroraum]
+    gru_run_sig: in52_out16_ep50_bs4096_seed47_coloc_rand90_f90_ss{ss}
+    gp_run_tag: dec_prod_hr_lr01_gps7
+    gp_seed: 7
+    date_freq: D
+    pretrain_steps: 300
+    max_pretrain_pts: 2000
+    variational_lr: 0.01
+
+twostage_ms40_nohr_lr01:
+  seeds: "42-81"
+  base: configs/gp/gp.yaml
+  script: src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    spatial_split.file: splits/spatial_split_full_merged_coloc_rand90_f90_ss{ss}.csv
+    gp_features: []
+    gp_features_onehot: []
+    gru_run_sig: in52_out16_ep50_bs4096_seed47_coloc_rand90_f90_ss{ss}_nohr
+    gp_run_tag: dec_prod_nohr_lr01_gps7
+    gp_seed: 7
+    date_freq: D
+    pretrain_steps: 300
+    max_pretrain_pts: 2000
+    variational_lr: 0.01
+
+trueobs_ms40_hr_lr01:
+  seeds: "42-81"
+  base: configs/gp/gp.yaml
+  script: src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    spatial_split.file: splits/spatial_split_full_merged_coloc_rand90_f90_ss{ss}.csv
+    gp_features: []
+    gp_features_onehot: [hydroraum]
+    gru_run_sig: oracle_coloc_rand90_f90_ss{ss}_hr_lr01
+    gp_run_tag: oracle_prod_hr_lr01_gps7
+    gp_seed: 7
+    date_freq: D
+    pretrain_steps: 300
+    max_pretrain_pts: 2000
+    variational_lr: 0.01
+    pred_path: /tmp/oracle_ms40_hr_lr01_ss{ss}.parquet
+    model_prefix: ORACLE
+  prebuild:
+    - builder: src/prep/build_oracle_pred.py
+      args: {split-file: "splits/spatial_split_full_merged_coloc_rand90_f90_ss{ss}.csv", output: "/tmp/oracle_ms40_hr_lr01_ss{ss}.parquet", well-subset: spatial-train}
+
+trueobs_ms40_nohr_lr01:
+  seeds: "42-81"
+  base: configs/gp/gp.yaml
+  script: src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    spatial_split.file: splits/spatial_split_full_merged_coloc_rand90_f90_ss{ss}.csv
+    gp_features: []
+    gp_features_onehot: []
+    gru_run_sig: oracle_coloc_rand90_f90_ss{ss}_nohr_lr01
+    gp_run_tag: oracle_prod_nohr_lr01_gps7
+    gp_seed: 7
+    date_freq: D
+    pretrain_steps: 300
+    max_pretrain_pts: 2000
+    variational_lr: 0.01
+    pred_path: /tmp/oracle_ms40_nohr_lr01_ss{ss}.parquet
+    model_prefix: ORACLE
+  prebuild:
+    - builder: src/prep/build_oracle_pred.py
+      args: {split-file: "splits/spatial_split_full_merged_coloc_rand90_f90_ss{ss}.csv", output: "/tmp/oracle_ms40_nohr_lr01_ss{ss}.parquet", well-subset: spatial-train}
+
+# folded from the archived one-off jobs and launchers, jul 2026
+
+gp_lr_check_lr001:
+  base: configs/gp/gp.yaml
+  script: src/scripts/pipelines/spatial/gp_eval.py
+  seeds: "42-46"
+  overrides:
+    gru_run_sig: in52_out16_ep50_bs4096_seed47_coloc_rand90_f90_ss42
+    spatial_split.file: splits/spatial_split_full_merged_coloc_rand90_f90_ss42_hpo90_rs{ss}.csv
+    gp_run_tag: lr_check_lr0p001_rs{ss}
+    gp_seed: 7
+    pretrain_steps: 500
+    max_pretrain_pts: 128
+    variational_lr: 0.001
+    jitter: 0.0001
+  note: GP lr robustness check, lr 0.001 arm; --seeds 47-53 = the v2 round; results reports/gp/hpo/lr_seed_check*
+
+gp_lr_check_lr01:
+  base: configs/gp/gp.yaml
+  script: src/scripts/pipelines/spatial/gp_eval.py
+  seeds: "42-46"
+  overrides:
+    gru_run_sig: in52_out16_ep50_bs4096_seed47_coloc_rand90_f90_ss42
+    spatial_split.file: splits/spatial_split_full_merged_coloc_rand90_f90_ss42_hpo90_rs{ss}.csv
+    gp_run_tag: lr_check_lr0p01_rs{ss}
+    gp_seed: 7
+    pretrain_steps: 500
+    max_pretrain_pts: 128
+    variational_lr: 0.01
+    jitter: 0.0001
+  note: GP lr robustness check, lr 0.01 arm; --seeds 47-53 = the v2 round
+
+twostage_md30_wk:
+  base: configs/gp/gp.yaml
+  script: src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    spatial_split.file: splits/spatial_split_full_merged_coloc_md30_f95_ss42.csv
+    gp_features: [siwa_verweilzeit_j]
+    gp_features_onehot: [hydroraum, gw_gespannt]
+    gru_run_sig: in52_out16_ep50_bs4096_seed40_coloc_md30_f95_ss42
+    gp_run_tag: ms_wk
+    date_freq: D
+    pretrain_steps: 300
+    max_pretrain_pts: 2000
+  note: decoupled half of the archived gp-wk-md30 job
+
+twostage_rand_wk_dedup:
+  base: configs/gp/gp.yaml
+  script: src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    spatial_split.file: splits/spatial_split_full_merged_dedup_random_f0p95_ss42.csv
+    gp_features: [siwa_verweilzeit_j]
+    gp_features_onehot: [hydroraum, gw_gespannt]
+    gru_run_sig: in52_out16_ep50_bs4096_seed40_dedup_rand_f95_ss42
+    gp_run_tag: ms_wk
+    date_freq: D
+    pretrain_steps: 300
+    max_pretrain_pts: 2000
+  prebuild:
+    - builder: src/prep/archive/dedup_find_duplicate_wells.py
+    - builder: src/prep/archive/dedup_generate_split_families.py
+  note: decoupled half of the archived gp-wk-rand job; legacy dedup split regenerated by the prebuilds
+
+gp_hpo_rounds1_3:
+  command: python src/scripts/pipelines/spatial/gp_runs.py --hpo-config configs/gp/hpo_gp_rounds1-3.yaml
+  note: GP HPO rounds 1-3 (iterative grid search; file holds the final round's space); results reports/gp/hpo/gp_gpytorch_hpo_v*
+
+gp_hpo_round4:
+  command: python src/scripts/pipelines/spatial/gp_runs.py --hpo-config configs/gp/hpo_gp_round4.yaml
+  note: GP HPO round 4 - re-validation on the leakage-free hpo90 split with the production GRU; results keep the historical gp_gpytorch_hpo_corrected_* names
+
+gru_hpo:
+  command: python src/scripts/pipelines/temporal/gru_runs.py --hpo-config configs/gru/hpo_gru.yaml
+  note: GRU HPO harness; predates registry-ID output dirs, results in reports/gru/hpo/ are the record
+
+trueobs_ablat_rand_f95:
+  seeds: "42-51"
+  base: configs/gp/gp.yaml
+  script: src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    spatial_split.file: splits/spatial_split_full_merged_coloc_rand_f95_ss{ss}.csv
+    gp_features: []
+    gp_features_onehot: []
+    gru_run_sig: oracle_ablat_rand_f95_ss{ss}
+    gp_run_tag: feat_coords_only_gps1
+    gp_seed: 1
+    date_freq: D
+    pretrain_steps: 300
+    max_pretrain_pts: 2000
+    variational_lr: 0.01
+    jitter: 0.00001
+    use_float64: true
+    pred_path: /tmp/oracle_ablat_rand_f95_ss{ss}.parquet
+    model_prefix: ORACLE
+  prebuild:
+    - builder: src/prep/build_coloc_split.py
+      args: {output: "splits/spatial_split_full_merged_coloc_rand_f95_ss{ss}.csv", density-percentile: none, mode: two-way, n-holdout: 52, seed: "{ss}"}
+    - builder: src/prep/build_oracle_pred.py
+      args: {split-file: "splits/spatial_split_full_merged_coloc_rand_f95_ss{ss}.csv", output: "/tmp/oracle_ablat_rand_f95_ss{ss}.parquet", well-subset: spatial-train}
+  note: oracle GP feature ablation, rand f95; feature sets in configs/gp/ablation_feature_sets.yaml via --set
+
+trueobs_ablat_md30_f95:
+  seeds: "42-51"
+  base: configs/gp/gp.yaml
+  script: src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    spatial_split.file: splits/spatial_split_full_merged_coloc_md30_f95_ss{ss}.csv
+    gp_features: []
+    gp_features_onehot: []
+    gru_run_sig: oracle_ablat_md30_f95_ss{ss}
+    gp_run_tag: feat_coords_only_gps1
+    gp_seed: 1
+    date_freq: D
+    pretrain_steps: 300
+    max_pretrain_pts: 2000
+    variational_lr: 0.01
+    jitter: 0.00001
+    use_float64: true
+    pred_path: /tmp/oracle_ablat_md30_f95_ss{ss}.parquet
+    model_prefix: ORACLE
+  prebuild:
+    - builder: src/prep/build_coloc_split.py
+      args: {output: "splits/spatial_split_full_merged_coloc_md30_f95_ss{ss}.csv", density-percentile: 30, mode: two-way, n-holdout: 52, seed: "{ss}"}
+    - builder: src/prep/build_oracle_pred.py
+      args: {split-file: "splits/spatial_split_full_merged_coloc_md30_f95_ss{ss}.csv", output: "/tmp/oracle_ablat_md30_f95_ss{ss}.parquet", well-subset: spatial-train}
+  note: oracle GP feature ablation, md30 f95; feature sets via --set as in trueobs_ablat_rand_f95
+
+trueobs_ablat_rand_f90:
+  seeds: "42-51"
+  base: configs/gp/gp.yaml
+  script: src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    spatial_split.file: splits/spatial_split_full_merged_coloc_rand_f90_ss{ss}.csv
+    gp_features: []
+    gp_features_onehot: []
+    gru_run_sig: oracle_ablat_rand_f90_ss{ss}
+    gp_run_tag: feat_coords_only_gps1
+    gp_seed: 1
+    date_freq: D
+    pretrain_steps: 300
+    max_pretrain_pts: 128
+    variational_lr: 0.0001
+    jitter: 0.00001
+    use_float64: true
+    pred_path: /tmp/oracle_ablat_rand_f90_ss{ss}.parquet
+    model_prefix: ORACLE
+  prebuild:
+    - builder: src/prep/build_coloc_split.py
+      args: {output: "splits/spatial_split_full_merged_coloc_rand_f90_ss{ss}.csv", density-percentile: none, mode: two-way, n-holdout: 104, seed: "{ss}"}
+    - builder: src/prep/build_oracle_pred.py
+      args: {split-file: "splits/spatial_split_full_merged_coloc_rand_f90_ss{ss}.csv", output: "/tmp/oracle_ablat_rand_f90_ss{ss}.parquet", well-subset: spatial-train}
+  note: full 30-config ablation at production GP settings (thesis table); the confirm round (ss42-44) ran at 2000 pts / lr 0.01
+
+trueobs_ms10_lr01:
+  seeds: "42-51"
+  base: configs/gp/gp.yaml
+  script: src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    spatial_split.file: splits/spatial_split_full_merged_coloc_rand90_f90_ss{ss}.csv
+    gp_features: []
+    gp_features_onehot: [hydroraum]
+    gru_run_sig: oracle_coloc_rand90_f90_ss{ss}
+    gp_run_tag: oracle_prod_hr_gps1
+    gp_seed: 1
+    date_freq: D
+    pretrain_steps: 300
+    max_pretrain_pts: 2000
+    variational_lr: 0.01
+    jitter: 0.00001
+    use_float64: true
+    pred_path: /tmp/oracle_prod_ss{ss}.parquet
+    model_prefix: ORACLE
+  prebuild:
+    - builder: src/prep/build_oracle_pred.py
+      args: {split-file: "splits/spatial_split_full_merged_coloc_rand90_f90_ss{ss}.csv", output: "/tmp/oracle_prod_ss{ss}.parquet", well-subset: spatial-train}
+  note: submit_oracle_production; other geometries (rand f95, rand80 f80, md50 f95/f90/f80) and gps2/3 via --set
+
+trueobs_md_sweep:
+  seeds: "42"
+  base: configs/gp/gp.yaml
+  script: src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    spatial_split.file: splits/spatial_split_full_merged_coloc_md30_f95_ss{ss}.csv
+    gp_features: []
+    gp_features_onehot: [hydroraum]
+    gru_run_sig: oracle_coloc_md30_f95_ss{ss}
+    gp_run_tag: md_sweep_pct30
+    gp_seed: 1
+    date_freq: D
+    pretrain_steps: 300
+    max_pretrain_pts: 2000
+    variational_lr: 0.01
+    jitter: 0.00001
+    use_float64: true
+    pred_path: /tmp/oracle_md_sweep_ss{ss}.parquet
+    model_prefix: ORACLE
+  prebuild:
+    - builder: src/prep/build_coloc_split.py
+      args: {output: "splits/spatial_split_full_merged_coloc_md30_f95_ss{ss}.csv", density-percentile: 30, mode: two-way, n-holdout: 52, seed: "{ss}"}
+    - builder: src/prep/build_oracle_pred.py
+      args: {split-file: "splits/spatial_split_full_merged_coloc_md30_f95_ss{ss}.csv", output: "/tmp/oracle_md_sweep_ss{ss}.parquet", well-subset: spatial-train}
+  note: oracle density-percentile sweep; pct 10-90 via --set of split file, gru_run_sig and gp_run_tag (md_sweep_pct{p}); extension seeds 43-47 used tag md_sweep_pct{p}_ss{ss}
+
+trueobs_matern52_rand90:
+  seeds: "42-51"
+  base: configs/gp/gp.yaml
+  script: src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    spatial_split.file: splits/spatial_split_full_merged_coloc_rand90_f90_ss{ss}.csv
+    nu: 2.5
+    gp_features: []
+    gp_features_onehot: [hydroraum]
+    gru_run_sig: oracle_matern52_rand90_ss{ss}
+    gp_run_tag: oracle_matern52_gps1
+    gp_seed: 1
+    date_freq: D
+    pretrain_steps: 300
+    max_pretrain_pts: 2000
+    variational_lr: 0.01
+    jitter: 0.00001
+    use_float64: true
+    pred_path: /tmp/oracle_matern52_ss{ss}.parquet
+    model_prefix: ORACLE
+  prebuild:
+    - builder: src/prep/build_oracle_pred.py
+      args: {split-file: "splits/spatial_split_full_merged_coloc_rand90_f90_ss{ss}.csv", output: "/tmp/oracle_matern52_ss{ss}.parquet", well-subset: spatial-train}
+  note: Matern-5/2 robustness check (thesis reports Matern-3/2 only)
+
+trueobs_gpseed_check:
+  base: configs/gp/gp.yaml
+  script: src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    spatial_split.file: splits/spatial_split_full_merged_coloc_rand90_f90_ss42.csv
+    gp_features: []
+    gp_features_onehot: [hydroraum]
+    gru_run_sig: oracle_coloc_rand90_f90_ss42
+    gp_run_tag: oracle_gpsval_hr_gps1
+    gp_seed: 1
+    date_freq: D
+    pretrain_steps: 300
+    max_pretrain_pts: 2000
+    variational_lr: 0.01
+    jitter: 0.00001
+    use_float64: true
+    pred_path: /tmp/oracle_gpsval_ss42.parquet
+    model_prefix: ORACLE
+  prebuild:
+    - builder: src/prep/build_oracle_pred.py
+      args: {split-file: splits/spatial_split_full_merged_coloc_rand90_f90_ss42.csv, output: /tmp/oracle_gpsval_ss42.parquet, well-subset: spatial-train}
+  note: GP seed robustness (basis for gp_seed 7); gps 2-10 via --set gp_seed=N gp_run_tag=oracle_gpsval_hr_gpsN
+
+trueobs_ms40_nohr:
+  seeds: "42-81"
+  base: configs/gp/gp.yaml
+  script: src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    spatial_split.file: splits/spatial_split_full_merged_coloc_rand90_f90_ss{ss}.csv
+    gp_features: []
+    gp_features_onehot: []
+    gru_run_sig: oracle_coloc_rand90_f90_ss{ss}_nohr
+    gp_run_tag: oracle_prod_nohr_gps7
+    gp_seed: 7
+    date_freq: D
+    pretrain_steps: 300
+    max_pretrain_pts: 128
+    variational_lr: 0.0001
+    jitter: 0.00001
+    use_float64: true
+    pred_path: /tmp/oracle_ms40_nohr_ss{ss}.parquet
+    model_prefix: ORACLE
+  prebuild:
+    - builder: src/prep/build_oracle_pred.py
+      args: {split-file: "splits/spatial_split_full_merged_coloc_rand90_f90_ss{ss}.csv", output: "/tmp/oracle_ms40_nohr_ss{ss}.parquet", well-subset: spatial-train}
+  note: coords-only oracle at production GP settings (historical GP stage ran ss42-46)
+
+twostage_ms_rand_f95:
+  seeds: "42-51"
+  base: configs/gru/gru.yaml
+  scripts:
+    - src/scripts/pipelines/temporal/gru_train.py
+    - src/scripts/pipelines/temporal/gru_eval.py
+    - src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    run_sig: in52_out16_ep50_bs4096_seed40_coloc_rand_f95_ss{ss}
+    dataset: full_merged
+    training.seed: 40
+    spatial_split.file: splits/spatial_split_full_merged_coloc_rand_f95_ss{ss}.csv
+    spatial_split.train_fraction: 0.95
+    gp_features: []
+    gp_features_onehot: [hydroraum]
+    gru_run_sig: in52_out16_ep50_bs4096_seed40_coloc_rand_f95_ss{ss}
+    gp_run_tag: multiseed_rand_gps1
+    gp_seed: 1
+    date_freq: D
+    pretrain_steps: 300
+    max_pretrain_pts: 2000
+    variational_lr: 0.01
+    jitter: 0.00001
+    use_float64: true
+    model_prefix: GRU_FCOV
+  prebuild:
+    - builder: src/prep/build_coloc_split.py
+      args: {output: "splits/spatial_split_full_merged_coloc_rand_f95_ss{ss}.csv", density-percentile: none, mode: two-way, n-holdout: 52, seed: "{ss}"}
+  note: submit_multiseed_coloc rand arm (era GRU, full static set); gps2/3 via --set
+
+twostage_ms_md30_f95:
+  seeds: "42-51"
+  base: configs/gru/gru.yaml
+  scripts:
+    - src/scripts/pipelines/temporal/gru_train.py
+    - src/scripts/pipelines/temporal/gru_eval.py
+    - src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    run_sig: in52_out16_ep50_bs4096_seed40_coloc_md30_f95_ss{ss}
+    dataset: full_merged
+    training.seed: 40
+    spatial_split.file: splits/spatial_split_full_merged_coloc_md30_f95_ss{ss}.csv
+    spatial_split.train_fraction: 0.95
+    gp_features: []
+    gp_features_onehot: [hydroraum]
+    gru_run_sig: in52_out16_ep50_bs4096_seed40_coloc_md30_f95_ss{ss}
+    gp_run_tag: multiseed_md30_gps1
+    gp_seed: 1
+    date_freq: D
+    pretrain_steps: 300
+    max_pretrain_pts: 2000
+    variational_lr: 0.01
+    jitter: 0.00001
+    use_float64: true
+    model_prefix: GRU_FCOV
+  prebuild:
+    - builder: src/prep/build_coloc_split.py
+      args: {output: "splits/spatial_split_full_merged_coloc_md30_f95_ss{ss}.csv", density-percentile: 30, mode: two-way, n-holdout: 52, seed: "{ss}"}
+  note: submit_multiseed_coloc md30 arm; gps2/3 via --set
+
+twostage_ms_km_f95:
+  seeds: "42-51"
+  base: configs/gru/gru.yaml
+  scripts:
+    - src/scripts/pipelines/temporal/gru_train.py
+    - src/scripts/pipelines/temporal/gru_eval.py
+    - src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    run_sig: in52_out16_ep50_bs4096_seed40_coloc_km_f95_ss{ss}
+    dataset: full_merged
+    training.seed: 40
+    spatial_split.file: splits/spatial_split_full_merged_coloc_km_f95_ss{ss}.csv
+    spatial_split.train_fraction: 0.95
+    gp_features: []
+    gp_features_onehot: [hydroraum]
+    gru_run_sig: in52_out16_ep50_bs4096_seed40_coloc_km_f95_ss{ss}
+    gp_run_tag: multiseed_km_gps1
+    gp_seed: 1
+    date_freq: D
+    pretrain_steps: 300
+    max_pretrain_pts: 2000
+    variational_lr: 0.01
+    jitter: 0.00001
+    use_float64: true
+    model_prefix: GRU_FCOV
+  note: submit_multiseed_coloc km arm; committed km splits are canonical (kmeans on statics, no regenerator); gps2/3 via --set
+
+twostage_ms_rand_f90:
+  seeds: "42-51"
+  base: configs/gru/gru.yaml
+  scripts:
+    - src/scripts/pipelines/temporal/gru_train.py
+    - src/scripts/pipelines/temporal/gru_eval.py
+    - src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    run_sig: in52_out16_ep50_bs4096_seed40_coloc_rand_f90_ss{ss}
+    dataset: full_merged
+    training.seed: 40
+    exclude_static_features: [parde_seasonality, GW_recharge_r1000m, gw_gespannt_bin, siwa_verweilzeit_j]
+    spatial_split.file: splits/spatial_split_full_merged_coloc_rand_f90_ss{ss}.csv
+    spatial_split.train_fraction: 0.90
+    gp_features: [siwa_verweilzeit_j]
+    gp_features_onehot: [hydroraum, gw_gespannt]
+    gru_run_sig: in52_out16_ep50_bs4096_seed40_coloc_rand_f90_ss{ss}
+    gp_run_tag: multiseed_rand_gps1
+    gp_seed: 1
+    date_freq: D
+    pretrain_steps: 300
+    max_pretrain_pts: 128
+    variational_lr: 0.0001
+    jitter: 0.00001
+    use_float64: true
+    model_prefix: GRU_FCOV
+  prebuild:
+    - builder: src/prep/build_coloc_split.py
+      args: {output: "splits/spatial_split_full_merged_coloc_rand_f90_ss{ss}.csv", density-percentile: none, mode: two-way, n-holdout: 104, seed: "{ss}"}
+  note: submit_multiseed_coloc_frac (35-feat GRU, production GP); md30 and f80 variants + gps2/3 via --set
+
+twostage_ms_md_sweep:
+  seeds: "42-51"
+  base: configs/gru/gru.yaml
+  scripts:
+    - src/scripts/pipelines/temporal/gru_train.py
+    - src/scripts/pipelines/temporal/gru_eval.py
+    - src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    run_sig: in52_out16_ep50_bs4096_seed40_coloc_md50_f95_ss{ss}
+    dataset: full_merged
+    training.seed: 40
+    exclude_static_features: [parde_seasonality, GW_recharge_r1000m, gw_gespannt_bin, siwa_verweilzeit_j]
+    spatial_split.file: splits/spatial_split_full_merged_coloc_md50_f95_ss{ss}.csv
+    spatial_split.train_fraction: 0.95
+    gp_features: [siwa_verweilzeit_j]
+    gp_features_onehot: [hydroraum, gw_gespannt]
+    gru_run_sig: in52_out16_ep50_bs4096_seed40_coloc_md50_f95_ss{ss}
+    gp_run_tag: multiseed_md50_gps1
+    gp_seed: 1
+    date_freq: D
+    pretrain_steps: 300
+    max_pretrain_pts: 2000
+    variational_lr: 0.01
+    jitter: 0.00001
+    use_float64: true
+    model_prefix: GRU_FCOV
+  prebuild:
+    - builder: src/prep/build_coloc_split.py
+      args: {output: "splits/spatial_split_full_merged_coloc_md50_f95_ss{ss}.csv", density-percentile: 50, mode: two-way, n-holdout: 52, seed: "{ss}"}
+  note: two-stage density sweep (md50 default); pct 20/40/60 via --set of split file, sigs and tag
+
+twostage_prod_seed40:
+  seeds: "42-51"
+  base: configs/gru/gru.yaml
+  scripts:
+    - src/scripts/pipelines/temporal/gru_train.py
+    - src/scripts/pipelines/temporal/gru_eval.py
+    - src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    run_sig: in52_out16_ep50_bs4096_seed40_coloc_rand90_f90_ss{ss}
+    dataset: full_merged
+    training.seed: 40
+    add_hydroraum_onehot: true
+    spatial_split.file: splits/spatial_split_full_merged_coloc_rand90_f90_ss{ss}.csv
+    spatial_split.train_fraction: 0.90
+    gp_features: []
+    gp_features_onehot: [hydroraum]
+    gru_run_sig: in52_out16_ep50_bs4096_seed40_coloc_rand90_f90_ss{ss}
+    gp_run_tag: dec_prod_hydroraum_gps1
+    gp_seed: 1
+    date_freq: D
+    pretrain_steps: 300
+    max_pretrain_pts: 128
+    variational_lr: 0.0001
+    jitter: 0.00001
+    use_float64: true
+    model_prefix: GRU_FCOV
+  note: submit_decoupled_production (seed-40/gps1 family behind the 10-seed figures); 9 split geometries and the gespannt GP variant (tag dec_prod_gespannt_gps1) via --set
+
+twostage_feat_alt:
+  seeds: "42-51"
+  base: configs/gp/gp.yaml
+  script: src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    spatial_split.file: splits/spatial_split_full_merged_coloc_rand_f95_ss{ss}.csv
+    gp_features: [fuk]
+    gp_features_onehot: []
+    gru_run_sig: in52_out16_ep50_bs4096_seed40_coloc_rand_f95_ss{ss}
+    gp_run_tag: dec_feat_alt_fuk_only_gps1
+    gp_seed: 1
+    date_freq: D
+    pretrain_steps: 300
+    max_pretrain_pts: 2000
+    variational_lr: 0.01
+    jitter: 0.00001
+    use_float64: true
+    model_prefix: GRU_FCOV
+  note: GP-only feature alternatives on the existing rand_f95 seed-40 GRUs; hydroraum_gespannt variant via --set
+
+twostage_ms40_nohr:
+  seeds: "42-81"
+  base: configs/gru/gru.yaml
+  scripts:
+    - src/scripts/pipelines/temporal/gru_train.py
+    - src/scripts/pipelines/temporal/gru_eval.py
+    - src/scripts/pipelines/spatial/gp_eval.py
+  overrides:
+    run_sig: in52_out16_ep50_bs4096_seed47_coloc_rand90_f90_ss{ss}_nohr
+    dataset: full_merged
+    training.seed: 47
+    add_hydroraum_onehot: false
+    spatial_split.file: splits/spatial_split_full_merged_coloc_rand90_f90_ss{ss}.csv
+    spatial_split.train_fraction: 0.90
+    gp_features: []
+    gp_features_onehot: []
+    gru_run_sig: in52_out16_ep50_bs4096_seed47_coloc_rand90_f90_ss{ss}_nohr
+    gp_run_tag: dec_prod_nohr_gps7
+    gp_seed: 7
+    date_freq: D
+    pretrain_steps: 300
+    max_pretrain_pts: 128
+    variational_lr: 0.0001
+    jitter: 0.00001
+    use_float64: true
+    model_prefix: GRU_FCOV
+  note: no-hydroraum sibling of twostage_prod (GRUs ran all 40 seeds; historical GP stage ss42-46)
+
+gru_seed_check:
+  seeds: "40-49"
+  base: configs/gru/gru.yaml
+  script: src/scripts/pipelines/temporal/gru_train.py
+  overrides:
+    run_sig: in52_out16_ep50_bs4096_seed{ss}_full_merged_global_valcheck
+    dataset: full_merged
+    training.seed: "{ss}"
+    exclude_static_features: [parde_seasonality, GW_recharge_r1000m, gw_gespannt_bin, siwa_verweilzeit_j]
+    spatial_split.split_type: random
+    spatial_split.train_fraction: 1.0
+    spatial_split.split_seed: 42
+  note: GRU model-seed robustness ({ss} = model seed, not split seed); basis for production seed 47
+
+joint_seed_check:
+  seeds: "40-49"
+  base: configs/joint/gru_gp.yaml
+  script: src/scripts/pipelines/joint/gru_gp_train.py
+  overrides:
+    run_sig: joint_in52_out16_ep50_seed{ss}_coloc_rand90_f90_joint_ss42_valcheck
+    training.seed: "{ss}"
+    training.early_stopping.patience: 15
+    spatial_split.file: splits/spatial_split_full_merged_coloc_rand90_f90_joint_ss42.csv
+    spatial_gp.jitter: 0.00001
+    spatial_gp.lambda_spatial: 0.0001
+    spatial_gp.gp_pretrain_steps: 300
+    spatial_gp.gp_features: []
+    spatial_gp.gp_features_onehot: [hydroraum]
+    joint.n_gp_dates: 9999
+    joint.gp_lr: 1.0e-3
+  note: joint model-seed robustness ({ss} = model seed, fixed split ss42); basis for seed 44; analysis scripts exclude valcheck sigs
+
+gru_parde_check:
+  seeds: "40-59"
+  base: configs/gru/gru.yaml
+  script: src/scripts/pipelines/temporal/gru_train.py
+  overrides:
+    run_sig: in52_out16_ep50_bs4096_seed{ss}_full_merged_prod35_parde_check
+    dataset: full_merged
+    training.seed: "{ss}"
+    add_hydroraum_onehot: true
+    exclude_static_features: [fok, fuk, gwlk_1, gwlk_2, gwlk_3, acf_class_ord]
+    spatial_split.split_type: random
+    spatial_split.train_fraction: 1.0
+    spatial_split.split_seed: 42
+  note: parde_seasonality sensitivity, prod35 arm; noparde arm via --set adding parde_seasonality to exclude_static_features + sig swap (historical sigs _v2/_v3/_v4, no committed artifacts)
+
+gru_perm_importance:
+  command: python src/analysis/model_selection/ablations/gru_permutation_importance.py --run-id 0346 --n-repeats 5 --seed 0
+  note: GRU permutation feature importance (GPU job); results in reports/feature_importance/
+
+joint_lambda_sweep:
+  seeds: "41-42"
+  base: configs/joint/gru_gp.yaml
+  script: src/scripts/pipelines/joint/gru_gp_train.py
+  overrides:
+    run_sig: joint_in52_out16_ep50_bs8192_seed{ss}_coloc_rand_f95_joint_ss42_lsp0p0001
+    training.seed: "{ss}"
+    training.early_stopping.patience: 15
+    spatial_split.file: splits/spatial_split_full_merged_coloc_rand_f95_joint_ss42.csv
+    spatial_gp.jitter: 0.00001
+    spatial_gp.lambda_spatial: 0.0001
+    spatial_gp.gp_pretrain_steps: 300
+    spatial_gp.gp_features: []
+    spatial_gp.gp_features_onehot: [hydroraum]
+    joint.gru_lr: 1.07e-4
+    joint.gp_lr: 1.0e-3
+  note: lambda sweep ({ss} = model seed 41/42); other lambdas {1e-5, 5e-5, 5e-4, 1e-3} via --set spatial_gp.lambda_spatial + lsp tag in run_sig; committed split is a regeneration of the original
+
+joint_arch_sweep:
+  base: configs/joint/gru_gp.yaml
+  script: src/scripts/pipelines/joint/gru_gp_train.py
+  overrides:
+    run_sig: joint_in52_out16_ep50_bs8192_seed40_coloc_rand_f95_joint_ss42_h128l5
+    training.seed: 40
+    training.early_stopping.patience: 15
+    spatial_split.file: splits/spatial_split_full_merged_coloc_rand_f95_joint_ss42.csv
+    model.gru_hidden: 128
+    model.gru_layers: 5
+    model.gru_dropout: 0.3
+    spatial_gp.jitter: 0.00001
+    spatial_gp.lambda_spatial: 0.034
+    spatial_gp.gp_pretrain_steps: 300
+    spatial_gp.gp_features: []
+    spatial_gp.gp_features_onehot: [hydroraum]
+    joint.gru_lr: 1.07e-4
+    joint.gp_lr: 1.0e-3
+  note: architecture A/B at lambda 0.034; h256l4 arm via --set model.gru_hidden=256 model.gru_layers=4 model.gru_dropout=0.2 + sig swap
+
+joint_ms_coloc:
+  seeds: "42-51"
+  base: configs/joint/gru_gp.yaml
+  script: src/scripts/pipelines/joint/gru_gp_train.py
+  overrides:
+    run_sig: joint_in52_out16_ep50_seed40_coloc_rand_f95_joint_ss{ss}
+    training.seed: 40
+    training.early_stopping.patience: 15
+    spatial_split.file: splits/spatial_split_full_merged_coloc_rand_f95_joint_ss{ss}.csv
+    spatial_split.split_seed: "{ss}"
+    spatial_split.coloc_split_type: rand
+    spatial_gp.jitter: 0.00001
+    spatial_gp.lambda_spatial: 0.0001
+    spatial_gp.gp_pretrain_steps: 300
+    spatial_gp.gp_features: []
+    spatial_gp.gp_features_onehot: [hydroraum]
+    joint.n_gp_dates: 9999
+    joint.gp_lr: 1.0e-3
+  note: joint coloc multiseed (rand f95 default); md50/km and f90/f80 via --set; committed _joint splits are regenerations except the verified rand90_f90 family
+
+joint_ms40_hr_gru:
+  seeds: "42-81"
+  base: configs/joint/gru_gp.yaml
+  script: src/scripts/pipelines/joint/gru_gp_train.py
+  overrides:
+    run_sig: joint_in52_out16_ep50_seed44_coloc_rand90_f90_hr_gru_ss{ss}
+    training.seed: 44
+    training.early_stopping.patience: 15
+    add_hydroraum_onehot: true
+    spatial_split.file: splits/spatial_split_full_merged_coloc_rand90_f90_joint_ss{ss}.csv
+    spatial_split.split_seed: "{ss}"
+    spatial_split.coloc_split_type: rand
+    spatial_gp.jitter: 0.00001
+    spatial_gp.lambda_spatial: 0.0001
+    spatial_gp.gp_pretrain_steps: 300
+    spatial_gp.gp_features: []
+    spatial_gp.gp_features_onehot: [hydroraum]
+    joint.n_gp_dates: 9999
+    joint.gp_lr: 1.0e-3
+  note: 35-static joint fairness rerun (hydroraum one-hot in the GRU; flag now native in gru_gp_train)
+
+joint_ms40_nohr:
+  seeds: "42-81"
+  base: configs/joint/gru_gp.yaml
+  script: src/scripts/pipelines/joint/gru_gp_train.py
+  overrides:
+    run_sig: joint_in52_out16_ep50_seed44_coloc_rand90_f90_joint_ss{ss}_nohr
+    training.seed: 44
+    training.early_stopping.patience: 15
+    add_hydroraum_onehot: true
+    spatial_split.file: splits/spatial_split_full_merged_coloc_rand90_f90_joint_ss{ss}.csv
+    spatial_split.split_seed: "{ss}"
+    spatial_split.coloc_split_type: rand
+    spatial_gp.jitter: 0.00001
+    spatial_gp.lambda_spatial: 0.0001
+    spatial_gp.gp_pretrain_steps: 300
+    spatial_gp.gp_features: []
+    spatial_gp.gp_features_onehot: []
+    joint.n_gp_dates: 9999
+    joint.gp_lr: 1.0e-3
+  note: GP-coords-only joint rerun; add_hydroraum_onehot true matches the stored 35-static artifacts (PVC code carried the hr_gru patch when these ran)
