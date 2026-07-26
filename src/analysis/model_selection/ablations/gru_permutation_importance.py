@@ -11,14 +11,14 @@ import pandas as pd
 import pyarrow.parquet as pq
 import torch
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[4]
 SRC_ROOT = ROOT / "src"
-SCRIPT_DIR = ROOT / "src" / "scripts" / "joint" / "temporal"
+SCRIPT_DIR = ROOT / "src" / "scripts" / "pipelines" / "temporal"
 for p in [str(SRC_ROOT), str(SCRIPT_DIR)]:
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from gru_model import GRUSeq2Seq  # noqa: E402
+from gru_model import GRUSeq2Seq
 
 STATIC_FEATURE_REGEX = (
     "eumohp_(.+)_(.+)_(.*[1])"
@@ -58,8 +58,6 @@ def _load_dataset() -> pd.DataFrame:
 
 def _build_windows(df, in_len, out_len, cov_cols, well_stats, well_static,
                    start_after: pd.Timestamp | None = None):
-    """Build sliding windows. If start_after is set, only emit windows whose
-    forecast end date is strictly after that timestamp (test period only)."""
     x_past_rows, x_future_rows, y_rows, x_static_rows, meta = [], [], [], [], []
     static_size = len(next(iter(well_static.values()))) if well_static else 0
     cutoff = np.datetime64(start_after) if start_after is not None else None
@@ -107,7 +105,6 @@ def _run_inference(model, x_past, x_future, x_static, device, batch_size=4096):
 
 
 def _nrmse_pw(pred, y_norm, meta, well_stats, df_ranges):
-    """Median per-well nRMSE (range-normalised)."""
     ids = [m[0] for m in meta]
     pred_flat = pd.DataFrame({"id": ids, "pred": list(pred), "y": list(y_norm)})
 
@@ -147,9 +144,7 @@ def main():
     well_stats = scalers["well_stats"]
     static_scaler = scalers.get("static_scaler")
 
-    if not torch.cuda.is_available():
-        raise RuntimeError("CUDA not available — failing so the pod is rescheduled on a GPU node")
-    device = torch.device("cuda")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
     checkpoint = torch.load(run_dir / "model.pt", map_location=device)
     model = GRUSeq2Seq(
@@ -167,30 +162,34 @@ def main():
     print("Loading dataset...")
     df = _load_dataset()
 
-    # Create hydroraum one-hots for models trained with add_hydroraum_onehot=True
     if "hydroraum" in df.columns:
         for cat in ["Entlastungsgebiete", "Transitgebiete", "Speisungsgebiete"]:
             df[f"hydroraum_{cat}"] = (df["hydroraum"] == cat).astype("float32")
 
-    static_cols = [c for c in df.columns if re.search(STATIC_FEATURE_REGEX, c)]
-
-    # Align static_cols with the model's actual static_input_size.
-    # Older models (e.g. 0346) lack siwa and/or hydroraum; newer ones may include them.
-    expected_static = checkpoint.get("static_input_size", 0)
-    if expected_static > 0 and len(static_cols) != expected_static:
-        possibly_absent = ["siwa_verweilzeit_j"] + [c for c in static_cols if c.startswith("hydroraum_")]
-        for feat in possibly_absent:
-            if feat in static_cols and len(static_cols) > expected_static:
-                static_cols = [c for c in static_cols if c != feat]
+    if "static_cols" in checkpoint:
+        static_cols = checkpoint["static_cols"]
+        expected_static = checkpoint.get("static_input_size", len(static_cols))
         if len(static_cols) != expected_static:
             raise RuntimeError(
-                f"static_cols size {len(static_cols)} != model static_input_size {expected_static}"
+                f"Checkpoint static_cols length {len(static_cols)} != static_input_size {expected_static}"
             )
-        print(f"Note: trimmed static_cols to {len(static_cols)} to match model's static_input_size={expected_static}")
+        print(f"Loaded static_cols from checkpoint ({len(static_cols)} features)")
+    else:
+        static_cols = [c for c in df.columns if re.search(STATIC_FEATURE_REGEX, c)]
+        expected_static = checkpoint.get("static_input_size", 0)
+        if expected_static > 0 and len(static_cols) != expected_static:
+            possibly_absent = ["siwa_verweilzeit_j"] + [c for c in static_cols if c.startswith("hydroraum_")]
+            for feat in possibly_absent:
+                if feat in static_cols and len(static_cols) > expected_static:
+                    static_cols = [c for c in static_cols if c != feat]
+            if len(static_cols) != expected_static:
+                raise RuntimeError(
+                    f"static_cols size {len(static_cols)} != model static_input_size {expected_static}"
+                )
+            print(f"Note: trimmed static_cols to {len(static_cols)} to match model's static_input_size={expected_static}")
 
     print(f"Static features ({len(static_cols)}): {static_cols}")
 
-    # build per-well raw static vectors (unscaled), then scale
     well_static_raw = {}
     for gid, g in df.groupby("id"):
         if gid not in well_stats:
@@ -204,7 +203,6 @@ def main():
         else:
             well_static_scaled[gid] = vec
 
-    # per-well GWL range over full observation period (for nRMSE normalisation)
     df_ranges = {}
     for gid, g in df.groupby("id"):
         vals = g["gws"].dropna().to_numpy()
@@ -219,7 +217,6 @@ def main():
     )
     print(f"Test windows: {len(x_past)}, wells: {len(set(m[0] for m in meta))}")
 
-    # scale covariates
     x_past_cov = cov_scaler.transform(
         x_past[:, :, 1:].reshape(-1, len(COV_COLS))
     ).reshape(x_past[:, :, 1:].shape)
@@ -233,13 +230,11 @@ def main():
     baseline = _nrmse_pw(pred_base, y, meta, well_stats, df_ranges)
     print(f"Baseline nRMSE_pw: {baseline:.4f}")
 
-    # all-features-zeroed
     x_static_zero = np.zeros_like(x_static)
     pred_zero = _run_inference(model, x_past_s, x_future_s, x_static_zero, device)
     zeroed = _nrmse_pw(pred_zero, y, meta, well_stats, df_ranges)
     print(f"All-zeroed nRMSE_pw: {zeroed:.4f}  (delta={zeroed - baseline:+.4f})")
 
-    # --- Static feature permutation ---
     results = []
     if args.dynamic_only:
         print("--dynamic-only: skipping static feature permutation")
@@ -257,9 +252,6 @@ def main():
         results.append({"feature": feat, "feature_type": "static", "delta_nrmse_pw": delta, "pct_change": pct})
         print(f"  [{fi+1:2d}/{len(static_cols)}] {feat}: delta={delta:+.4f} ({pct:+.1f}%)")
 
-    # --- Dynamic feature permutation ---
-    # Each dynamic feature is permuted across the window dimension (effectively across wells),
-    # with the same permutation applied to both past and future covariate windows.
     print(f"\n--- Dynamic feature permutation ({len(COV_COLS)} features) ---")
     for fi, feat in enumerate(COV_COLS):
         deltas = []
@@ -279,7 +271,7 @@ def main():
 
     results.sort(key=lambda r: r["delta_nrmse_pw"], reverse=True)
 
-    out_path = ROOT / "reports" / "feature_importance" / f"gru_perm_importance_{args.run_id}.md"
+    out_path = ROOT / "reports" / "tables" / f"gru_perm_importance_{args.run_id}.md"
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     lines = [

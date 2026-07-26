@@ -1,16 +1,19 @@
+from __future__ import annotations
+
 from pathlib import Path
 
 import pandas as pd
 import yaml
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[4]
 CONFIG_DIR = ROOT / "configs" / "gru"
-HPO_RESULTS_DIR = ROOT / "reports" / "gru" / "hpo"
-OUT_DIR = ROOT / "reports" / "gru" / "metrics" / "hpo_tables"
+HPO_RESULTS_DIR = ROOT / "reports" / "metrics" / "gru" / "hpo"
+OUT_DIR = ROOT / "reports" / "metrics" / "gru" / "hpo_tables"
 OUT_CSV = OUT_DIR / "gru_hpo_search_spaces.csv"
 OUT_MD = OUT_DIR / "gru_hpo_search_spaces.md"
 
 HPO_CONFIGS = [
+    CONFIG_DIR / "hpo_gru_ablation.yaml",
     CONFIG_DIR / "hpo_gru.yaml",
 ]
 
@@ -22,19 +25,19 @@ OPTIONAL_CONFIG_NAMES = [
 ]
 
 
-def _load_yaml(path):
+def _load_yaml(path: Path) -> dict:
     payload = yaml.safe_load(path.read_text(encoding="utf-8"))
     return payload if isinstance(payload, dict) else {}
 
 
-def _format_values(values):
+def _format_values(values: object) -> str:
     if isinstance(values, list):
         return ", ".join(str(v) for v in values)
     return str(values)
 
 
-def _discover_configs():
-    files = []
+def _discover_configs() -> list[Path]:
+    files: list[Path] = []
     for path in HPO_CONFIGS:
         if path.exists():
             files.append(path)
@@ -47,7 +50,7 @@ def _discover_configs():
     return files
 
 
-def _format_series_values(series):
+def _format_series_values(series: pd.Series) -> str:
     values = []
     for value in series.dropna().unique().tolist():
         values.append(value)
@@ -55,10 +58,10 @@ def _format_series_values(series):
     return ", ".join(str(v) for v in values)
 
 
-def main():
-    rows = []
-    all_hp_keys = set()
-    seen_names = set()
+def main() -> None:
+    rows: list[dict[str, str]] = []
+    all_hp_keys: set[str] = set()
+    seen_names: set[str] = set()
 
     files = _discover_configs()
     for path in files:
@@ -68,7 +71,7 @@ def main():
         if not isinstance(search_space, dict):
             search_space = {}
 
-        row = {"hpo_run": name}
+        row: dict[str, str] = {"hpo_run": name}
         for hp_key, values in search_space.items():
             clean_key = str(hp_key).replace("model.", "").replace("training.", "")
             row[clean_key] = _format_values(values)
