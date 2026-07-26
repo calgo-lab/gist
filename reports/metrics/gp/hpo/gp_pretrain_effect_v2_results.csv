@@ -1,0 +1,13 @@
+trial,gru_run_sig,gp_run_tag,status,objective,elapsed_s,error,hp.isotropic,hp.jitter,hp.kernel_type,hp.max_pretrain_pts,hp.pretrain_lr,hp.pretrain_steps
+1,gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42,gp_pretrain_effect_v2_t001,ok,0.2552652450506907,39.991,,True,0.001,matern32,1024,0.0001,20
+2,gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42,gp_pretrain_effect_v2_t002,ok,0.2552652450506907,38.066,,True,0.001,matern32,1024,0.0002,20
+3,gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42,gp_pretrain_effect_v2_t003,ok,0.2552652450506907,41.272,,True,0.001,matern32,1024,0.0001,10
+4,gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42,gp_pretrain_effect_v2_t004,ok,0.2552652450506907,38.754,,True,0.001,matern32,1024,0.0001,5
+5,gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42,gp_pretrain_effect_v2_t005,ok,0.2552652450506907,41.113,,True,0.001,matern32,1024,0.0002,50
+6,gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42,gp_pretrain_effect_v2_t006,ok,0.2552652450506907,41.464,,True,0.001,matern32,1024,0.0002,10
+7,gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42,gp_pretrain_effect_v2_t007,ok,0.2552652450506907,33.071,,True,0.001,matern32,1024,0.0001,0
+8,gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42,gp_pretrain_effect_v2_t008,ok,0.2552652450506907,40.305,,True,0.001,matern32,1024,5e-05,10
+9,gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42,gp_pretrain_effect_v2_t009,ok,0.2552652450506907,40.842,,True,0.001,matern32,1024,0.0001,50
+10,gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42,gp_pretrain_effect_v2_t010,ok,0.2552652450506907,42.01,,True,0.001,matern32,1024,5e-05,20
+11,gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42,gp_pretrain_effect_v2_t011,ok,0.2552652450506907,40.866,,True,0.001,matern32,1024,5e-05,50
+12,gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42,gp_pretrain_effect_v2_t012,ok,0.2552652450506907,37.539,,True,0.001,matern32,1024,0.0002,5

@@ -1,0 +1,9 @@
+trial,gru_run_sig,gp_run_tag,status,objective,elapsed_s,error,hp.isotropic,hp.jitter,hp.kernel_type,hp.max_pretrain_pts,hp.pretrain_lr,hp.pretrain_steps
+1,gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42,gp_stability_v1_t001,ok,-45.87497925632553,60.248,,True,0.001,matern32,1024,1e-4,5
+2,gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42,gp_stability_v1_t002,ok,-45.87497925632553,28.651,,True,0.001,matern32,1024,5e-4,0
+3,gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42,gp_stability_v1_t003,ok,-45.87497925632553,28.796,,True,0.001,matern32,1024,5e-4,2
+4,gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42,gp_stability_v1_t004,ok,-45.87497925632553,28.799,,True,0.001,matern32,1024,5e-4,5
+5,gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42,gp_stability_v1_t005,ok,-45.87497925632553,28.919,,True,0.001,matern32,1024,1e-4,2
+6,gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42,gp_stability_v1_t006,ok,-45.87497925632553,29.292,,True,0.001,matern32,1024,5e-4,1
+7,gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42,gp_stability_v1_t007,ok,-45.87497925632553,28.664,,True,0.001,matern32,1024,1e-4,0
+8,gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42,gp_stability_v1_t008,ok,-45.87497925632553,28.863,,True,0.001,matern32,1024,1e-4,1

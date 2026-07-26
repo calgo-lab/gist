@@ -1,0 +1,15 @@
+best_objective: -45.87497925632553
+best_trial:
+  trial: 1
+  gru_run_sig: gru_l2_seed40_ep50_full_merged_spf0p8_sc20_ss42
+  gp_run_tag: gp_stability_v1_t001
+  status: ok
+  objective: -45.87497925632553
+  elapsed_s: 60.248
+  error: ''
+  hp.isotropic: true
+  hp.jitter: 0.001
+  hp.kernel_type: matern32
+  hp.max_pretrain_pts: 1024
+  hp.pretrain_lr: 1e-4
+  hp.pretrain_steps: 5

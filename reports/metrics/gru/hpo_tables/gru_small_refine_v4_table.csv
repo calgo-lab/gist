@@ -1,0 +1,10 @@
+trial,status,objective,run_sig,gru_dropout,gru_hidden,gru_layers,lr
+1,ok,0.2657414557678317,gru_small_refine_v4_t001_seed40_full_merged,0.2,176,4,0.00035
+2,ok,0.2401268077999997,gru_small_refine_v4_t002_seed40_full_merged,0.2,192,4,0.00035
+3,ok,0.2453051637191828,gru_small_refine_v4_t003_seed40_full_merged,0.2,192,4,0.000375
+4,ok,0.2381395907293347,gru_small_refine_v4_t004_seed40_full_merged,0.2,176,4,0.000375
+5,ok,0.2428449037785725,gru_small_refine_v4_t005_seed40_full_merged,0.2,192,4,0.0004
+6,ok,0.2370708177032094,gru_small_refine_v4_t006_seed40_full_merged,0.2,160,4,0.0004
+7,ok,0.2239427004401138,gru_small_refine_v4_t007_seed40_full_merged,0.2,176,4,0.0004
+8,ok,0.2393595388019057,gru_small_refine_v4_t008_seed40_full_merged,0.2,160,4,0.00035
+9,ok,0.228454848089898,gru_small_refine_v4_t009_seed40_full_merged,0.2,160,4,0.000375

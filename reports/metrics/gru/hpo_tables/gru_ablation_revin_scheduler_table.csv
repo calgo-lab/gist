@@ -1,0 +1,5 @@
+trial,status,objective,run_sig,use_revin,lr_scheduler.enabled
+1,ok,0.1612232790148093,gru_ablation_revin_scheduler_t001_seed40_full_merged,True,False
+2,ok,0.2111706760644249,gru_ablation_revin_scheduler_t002_seed40_full_merged,False,True
+3,ok,0.1612232790148093,gru_ablation_revin_scheduler_t003_seed40_full_merged,True,True
+4,ok,0.2111706760644249,gru_ablation_revin_scheduler_t004_seed40_full_merged,False,False
