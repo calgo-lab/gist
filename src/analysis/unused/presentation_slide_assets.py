@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import json
 from pathlib import Path
 from typing import Iterable
@@ -17,10 +15,10 @@ ROOT = Path(__file__).resolve().parents[3]
 
 DATA_CFG = ROOT / "configs" / "data.yaml"
 SPLITS_DIR = ROOT / "splits"
-OUT_DIR = ROOT / "reports" / "presentation_assets"
-OUT_FIG = OUT_DIR / "figures"
-OUT_MET = OUT_DIR / "metrics"
-OUT_TXT = OUT_DIR / "notes"
+OUT_DIR = ROOT / "reports"
+OUT_FIG = ROOT / "reports" / "figures" / "slides"
+OUT_MET = ROOT / "reports" / "tables" / "slides"
+OUT_TXT = ROOT / "reports" / "tables" / "slides"
 
 BOUNDARY_FILE = ROOT / "data" / "boundaries" / "geoBoundaries-DEU-ADM1_simplified.geojson"
 
@@ -405,7 +403,6 @@ def build_gp_feature_importance_assets() -> None:
 def build_metadata_assets(meta_path: Path, model_ids: set[str]) -> None:
     meta = pd.read_csv(meta_path, sep=";")
 
-    # Deduplicate to one metadata row per well id.
     meta_w = meta.drop_duplicates("id").copy()
     meta_w = meta_w[meta_w["id"].astype(str).isin(model_ids)].copy()
     n_wells = int(meta_w["id"].nunique())
@@ -488,7 +485,6 @@ def build_metadata_assets(meta_path: Path, model_ids: set[str]) -> None:
 
     fig, axes = plt.subplots(2, 2, figsize=(12, 9))
 
-    # Panel 1: key summary text.
     top_txt = [
         f"- Wells with metadata: {n_wells}",
         f"- Metadata columns: {meta_w.shape[1]}",
@@ -505,7 +501,6 @@ def build_metadata_assets(meta_path: Path, model_ids: set[str]) -> None:
     axes[0, 0].text(0.01, 0.98, "\n".join(["Metadata Overview (1 row per well)", ""] + top_txt), va="top", fontsize=11, family="monospace")
     _save_text_panel(top_txt, "metadata_summary_text.png", "Metadata Overview (1 row per well)")
 
-    # Panel 2: hydroraum.
     if not hydroraum_counts.empty:
         labels = hydroraum_counts["label_en"].tolist()
         counts = hydroraum_counts["count"].astype(int).tolist()
@@ -534,7 +529,6 @@ def build_metadata_assets(meta_path: Path, model_ids: set[str]) -> None:
     else:
         axes[0, 1].axis("off")
 
-    # Panel 3: confined/unconfined.
     if not gesp_counts.empty:
         labels = gesp_counts["label_en"].tolist()
         counts = gesp_counts["count"].astype(int).tolist()
@@ -561,7 +555,6 @@ def build_metadata_assets(meta_path: Path, model_ids: set[str]) -> None:
     else:
         axes[1, 0].axis("off")
 
-    # Panel 4: missingness in key features.
     if not miss_df.empty:
         miss_plot = miss_df.copy()
         miss_plot["feature_en"] = miss_plot["feature"].map(lambda c: METADATA_FEATURE_LABELS_EN.get(c, c))
@@ -653,8 +646,7 @@ def build_gru_tft_horizon_plots() -> None:
     comparison_label = "full_merged spatial split"
     comparison_slug = "full_merged_spatial_split"
 
-    # Best GRU run (weighted RMSE over h1..16).
-    gru_summary = pd.read_csv(ROOT / "reports" / "gru" / "metrics" / "gru_metrics_summary.csv")
+    gru_summary = pd.read_csv(ROOT / "reports" / "metrics" / "gru" / "gru_metrics_summary.csv")
     gru_best = gru_summary.loc[gru_summary["RMSE_weighted_mean"].idxmin()]
     gru_sig = str(gru_best["run_sig"])
     gru_pred = pq.read_table(
@@ -664,7 +656,6 @@ def build_gru_tft_horizon_plots() -> None:
     gru_h["model"] = "GRU"
     gru_h["run"] = gru_sig
 
-    # Best TFT run on the same spatial split only (`full_merged`).
     tft_root = ROOT / "outputs" / "TFT"
     tft_rows = []
     tft_hz_map: dict[str, pd.DataFrame] = {}
@@ -752,7 +743,6 @@ def build_gru_tft_horizon_plots() -> None:
     fig.savefig(OUT_FIG / f"gru_vs_tft_best_all_metrics_by_horizon_{comparison_slug}.png", dpi=220)
     plt.close(fig)
 
-    # Slide-10 reconciliation note.
     note = [
         "# Slide 10 Metric Reconciliation",
         "",
@@ -794,7 +784,6 @@ def build_spatial_split_plots(coords: pd.DataFrame) -> None:
     split_cluster = pd.read_csv(SPLITS_DIR / "spatial_split_full_merged_spf0p8_sc20_ss42.csv")
     split_maxdist = pd.read_csv(SPLITS_DIR / "random_max_dist_90.csv")
 
-    # Random split with same holdout size as max-distance split.
     ids = coords["id"].drop_duplicates().to_numpy()
     rng = np.random.default_rng(42)
     n_holdout = int((split_maxdist["spatial_split"] == "spatial_holdout").sum())
@@ -837,7 +826,6 @@ def build_spatial_split_plots(coords: pd.DataFrame) -> None:
     _single_plot(split_random, "Random Split (seed=42)", "split_train_holdout_random.png")
     _single_plot(split_maxdist, "Max-Distance-Constrained Split", "split_train_holdout_maxdist.png")
 
-    # Combined figure.
     fig, axes = plt.subplots(1, 3, figsize=(15, 4.8), sharex=True, sharey=True)
     for ax, (name, sp) in zip(axes, split_map.items()):
         df = sp.merge(coords, on="id", how="left")
@@ -857,7 +845,7 @@ def build_spatial_split_plots(coords: pd.DataFrame) -> None:
 
 
 def build_distance_vs_rmse_plot(coords: pd.DataFrame) -> None:
-    gp_summary_path = ROOT / "reports" / "gp" / "metrics" / "gp_metrics_summary.csv"
+    gp_summary_path = ROOT / "reports" / "metrics" / "gp" / "gp_metrics_summary.csv"
     gp_summary = pd.read_csv(gp_summary_path)
     gp_summary = gp_summary[gp_summary["model_prefix"] == "GRU_FCOV"].copy()
     if gp_summary.empty:
@@ -866,13 +854,11 @@ def build_distance_vs_rmse_plot(coords: pd.DataFrame) -> None:
     run_dir = ROOT / "outputs" / "gp" / str(best["dir_name"])
     pred = pq.read_table(run_dir / "gp_pred.parquet").to_pandas()
 
-    # Use the classic spf0p8 split tied to most local GP runs.
     split_path = SPLITS_DIR / "spatial_split_full_merged_spf0p8_sc20_ss42.csv"
     split = pd.read_csv(split_path)
     train_ids = set(split.loc[split["spatial_split"] == "spatial_train", "id"])
     holdout_ids = set(split.loc[split["spatial_split"] == "spatial_holdout", "id"])
 
-    # Per-well RMSE on holdout.
     pred_h = pred[pred["id"].isin(holdout_ids)].copy()
     rmse_rows = []
     for wid, g in pred_h.groupby("id"):
@@ -943,7 +929,6 @@ def build_distance_vs_rmse_plot(coords: pd.DataFrame) -> None:
         trim_q=0.98,
     )
 
-    # ── Polynomial / power-law fit comparison ────────────────────────────────
     def _poly_fit_figure(out_name: str) -> None:
         fit_colors = {"deg1": "#d62728", "deg2": "#2ca02c", "deg3": "#ff7f0e", "power": "#9467bd"}
         fig, axes = plt.subplots(2, 2, figsize=(12, 9))
@@ -956,7 +941,6 @@ def build_distance_vs_rmse_plot(coords: pd.DataFrame) -> None:
             mask = np.isfinite(x_all) & np.isfinite(y_all) & (y_all > 0)
             x = x_all[mask]
             y = y_all[mask]
-            # Trim at P98 to match the trimmed figure
             y_cut = float(np.quantile(y, 0.98))
             keep = y <= y_cut
             x, y = x[keep], y[keep]
@@ -979,7 +963,6 @@ def build_distance_vs_rmse_plot(coords: pd.DataFrame) -> None:
                         label=f"{lbl} R²={r2:.3f}")
                 row[f"r2_deg{deg}"] = r2
 
-            # Power-law fit in log-log space (skip near-zero x values)
             pos = x > 0.05
             if pos.sum() > 5:
                 lx = np.log10(x[pos])
@@ -1010,7 +993,6 @@ def build_distance_vs_rmse_plot(coords: pd.DataFrame) -> None:
         fig.savefig(OUT_FIG / out_name, dpi=220)
         plt.close(fig)
 
-        # Print R² summary to stdout
         print("\n── Polynomial fit R² summary ──")
         header = f"{'k':>4}  {'Linear R²':>10}  {'Quadratic R²':>13}  {'Cubic R²':>9}  {'Power-law R²':>13}"
         print(header)
