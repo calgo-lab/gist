@@ -1,0 +1,6 @@
+class,name,GP n_obs,GP accuracy (%),TFT n_obs,TFT accuracy (%)
+1,very low,43472,46.9,551,94.6
+2,low,65024,11.5,323,65.0
+3,normal,222384,23.0,580,81.9
+4,high,67408,11.5,158,57.0
+5,very high,46704,61.8,110,57.3
