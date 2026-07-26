@@ -1,33 +1,4 @@
-"""
-gru_report.py
-
-Builds reports/gru/metrics/gru_metrics_summary.csv and all GRU figures
-from outputs/GRU_FCOV/.
-
-Run after training completes:
-    python src/analysis/build/gru_report.py
-
-Outputs
--------
-reports/gru/metrics/gru_metrics_summary.csv
-    One row per run. Columns: run_number, hpo_name, trial, objective, train_s,
-    trained_epochs, NSE/RMSE/MAE × {weighted_mean, mean, weighted_mean_h13,
-    mean_h13, h16}, layers, hidden, dropout, lr, batch_size, revin,
-    lr_scheduler, run_sig.
-
-reports/gru/figures/gru_top5_nse_vs_tft.png
-reports/gru/figures/gru_top5_rmse_vs_tft.png
-    Top 5 runs by weighted mean NSE/RMSE (h1–16) vs best TFT run.
-
-reports/gru/figures/gru_best_nse_vs_tft.png
-reports/gru/figures/gru_best_rmse_vs_tft.png
-    Best run by weighted h1–16 + best run by weighted h13–16 + TFT.
-
-reports/gru/figures/config_seed_comparison.png
-    Performance vs runtime for hardcoded config groups across seeds.
-"""
-from __future__ import annotations
-
+import pickle
 import sys
 from pathlib import Path
 
@@ -41,10 +12,10 @@ sys.path.insert(0, str(ROOT / "src"))
 from libs.run_registry import read_registry
 
 GRU_ROOT = ROOT / "outputs" / "GRU_FCOV"
-HPO_DIR = ROOT / "reports" / "gru" / "hpo"
-METRICS_DIR = ROOT / "reports" / "gru" / "metrics"
-FIG_DIR = ROOT / "reports" / "gru" / "figures"
-TFT_SUMMARY = ROOT / "reports" / "tft" / "metrics" / "tft_metrics_summary.csv"
+HPO_DIR = ROOT / "reports" / "metrics" / "gru" / "hpo"
+METRICS_DIR = ROOT / "reports" / "metrics" / "gru"
+FIG_DIR = ROOT / "reports" / "figures" / "gru"
+TFT_SUMMARY = ROOT / "reports" / "metrics" / "tft" / "tft_metrics_summary.csv"
 OUT_CSV = METRICS_DIR / "gru_metrics_summary.csv"
 
 WEIGHTS_H1_16 = np.linspace(1.0, 2.0, 16)
@@ -91,8 +62,10 @@ SEED_COMPARISON_CONFIGS: dict[str, list[str]] = {
 }
 
 
-def _nse(p, r):
-    d = np.sum((r - r.mean()) ** 2)
+def _nse(p, r, y_bar=None):
+    if y_bar is None:
+        y_bar = r.mean()
+    d = np.sum((r - y_bar) ** 2)
     return float(1 - np.sum((p - r) ** 2) / d) if d > 0 else np.nan
 
 
@@ -130,12 +103,13 @@ def _hp_from_meta(meta):
     return {short: meta[meta_key] for meta_key, short in META_TO_HP.items() if meta_key in meta}
 
 
-def _horizon_medians(pred_df):
+def _horizon_medians(pred_df, train_means=None):
     rows = []
-    for (_, h), g in pred_df.groupby(["id", "horizon"]):
+    for (well_id, h), g in pred_df.groupby(["id", "horizon"]):
         p = g["gws_forecast"].to_numpy()
         r = g["gws"].to_numpy()
-        rows.append({"horizon": int(h), "NSE": _nse(p, r), "RMSE": _rmse(p, r), "MAE": _mae(p, r)})
+        y_bar = train_means.get(well_id) if train_means else None
+        rows.append({"horizon": int(h), "NSE": _nse(p, r, y_bar=y_bar), "RMSE": _rmse(p, r), "MAE": _mae(p, r)})
     return pd.DataFrame(rows).groupby("horizon", as_index=False)[["NSE", "RMSE", "MAE"]].median()
 
 
@@ -194,7 +168,15 @@ def collect_runs():
                 meta = loaded
                 trained_epochs = meta.get("trained_epochs")
 
-        hz = _horizon_medians(pred_df)
+        train_means = None
+        scalers_path = run_dir / "scalers.pkl"
+        if scalers_path.exists():
+            with open(scalers_path, "rb") as f:
+                scalers = pickle.load(f)
+            well_stats = scalers.get("well_stats", {})
+            train_means = {wid: float(stats[0]) for wid, stats in well_stats.items()}
+
+        hz = _horizon_medians(pred_df, train_means=train_means)
         if hz.empty:
             continue
 

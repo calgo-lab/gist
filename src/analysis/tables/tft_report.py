@@ -7,10 +7,10 @@ import pyarrow.parquet as pq
 
 ROOT = Path(__file__).resolve().parents[3]
 
-KUNZ_FILE = ROOT / "reports/tft/metrics/kunz_metrics_aggregated.parquet"
-FULL_TABLE_CSV = ROOT / "reports/tft/metrics/tft_metrics_summary.csv"
-SPARSE_TABLE_CSV = ROOT / "reports/tft/metrics/tft_metrics_summary_sparse.csv"
-FIGURES_DIR = ROOT / "reports/tft/figures"
+KUNZ_FILE = ROOT / "data" / "metrics_aggregated.parquet"
+FULL_TABLE_CSV = ROOT / "reports/metrics/tft/tft_metrics_summary.csv"
+SPARSE_TABLE_CSV = ROOT / "reports/metrics/tft/tft_metrics_summary_sparse.csv"
+FIGURES_DIR = ROOT / "reports/figures/temporal_gru_vs_tft"
 
 MODEL = "TFT"
 IN_LEN = 52
@@ -30,17 +30,6 @@ HORIZONS = list(range(1, 17))
 
 
 def horizon_variation_analysis(pred_path):
-    """
-    Compute and print how much TFT predictions vary across horizons (h=1..h=16)
-    for the same target date, compared to the spatial spread between wells.
-
-    Horizon variation per well: max(gws across horizons) - min(gws across horizons).
-    Spatial range: max(gws at h=1 across wells) - min(gws at h=1 across wells).
-    Both are max-min ranges; ratio shows horizon effect relative to spatial spread.
-
-    One row per calendar month sampled from the range where all 16 horizons exist.
-    Returns a DataFrame with the per-month results.
-    """
     pred = pq.read_table(pred_path).to_pandas()
     pred["datum"] = pd.to_datetime(pred["datum"])
     pred["startzeitpunkt"] = pd.to_datetime(pred["startzeitpunkt"])

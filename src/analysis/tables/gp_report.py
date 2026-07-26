@@ -1,25 +1,3 @@
-"""
-gp_report.py
-
-Builds reports/gp/metrics/gp_metrics_summary.csv from outputs/gp/.
-
-Scans all GP eval outputs, pivots key/value parquet metrics to wide format,
-and joins HPO metadata from reports/gp/hpo/*_results.csv.
-
-Run after GP eval completes:
-    python src/analysis/build/gp_report.py
-
-Outputs
--------
-reports/gp/metrics/gp_metrics_summary.csv
-    One row per GP run. Columns: run_number, hpo_name, trial, objective,
-    elapsed_s, model_prefix, gru_run_sig, gp_run_tag, split,
-    RMSE, nRMSE, NSE_pooled, NSE_id_median, MAE,
-    kernel, pretrain_steps, jitter,
-    max_pretrain_pts, variational_lr, isotropic, use_float64, dir_name.
-"""
-from __future__ import annotations
-
 from pathlib import Path
 
 import numpy as np
@@ -27,8 +5,8 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[3]
 GP_ROOT = ROOT / "outputs" / "gp"
-HPO_DIR = ROOT / "reports" / "gp" / "hpo"
-METRICS_DIR = ROOT / "reports" / "gp" / "metrics"
+HPO_DIR = ROOT / "reports" / "metrics" / "gp" / "hpo"
+METRICS_DIR = ROOT / "reports" / "metrics" / "gp"
 OUT_CSV = METRICS_DIR / "gp_metrics_summary.csv"
 
 KEEP_METRICS = ["RMSE", "nRMSE", "NSE_pooled", "NSE_id_median", "MAE"]
