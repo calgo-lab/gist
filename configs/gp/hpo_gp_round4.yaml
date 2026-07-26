@@ -1,0 +1,28 @@
+name: gp_gpytorch_hpo_corrected
+max_trials: 12
+random_seed: 42
+objective:
+  metric: nRMSE
+  mode: min
+search_space:
+  gru_run_sig: [in52_out16_ep50_bs4096_seed47_coloc_rand90_f90_ss42]
+  jitter: [0.0001]
+  use_float64: [true]
+  pretrain_steps: [100, 200, 500]
+  variational_lr: [0.001, 0.01, 0.1]
+  max_pretrain_pts: [128, 512]
+gp_config:
+  dataset: full_merged
+  model: GRU_FCOV
+  gru_run_sig: in52_out16_ep50_bs4096_seed47_coloc_rand90_f90_ss42
+  spatial_split:
+    file: splits/spatial_split_full_merged_coloc_rand90_f90_ss42_hpo90.csv
+  date_freq: "D"
+  pretrain_steps: 300
+  max_pretrain_pts: 2000
+  jitter: 0.00001
+  variational_lr: 0.01
+  use_float64: true
+  gp_features:
+    - gok
+  gp_features_onehot: []

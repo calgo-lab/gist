@@ -1,0 +1,30 @@
+coords_only:             {gp_features: [],                                                          gp_features_onehot: []}
+siwa_only:               {gp_features: [siwa_verweilzeit_j],                                        gp_features_onehot: []}
+gespannt_only:           {gp_features: [],                                                          gp_features_onehot: [gw_gespannt]}
+hydroraum_only:          {gp_features: [],                                                          gp_features_onehot: [hydroraum]}
+hydroraum_gespannt:      {gp_features: [],                                                          gp_features_onehot: [hydroraum, gw_gespannt]}
+siwa_gespannt:           {gp_features: [siwa_verweilzeit_j],                                        gp_features_onehot: [gw_gespannt]}
+siwa_hydroraum:          {gp_features: [siwa_verweilzeit_j],                                        gp_features_onehot: [hydroraum]}
+siwa_hydroraum_gespannt: {gp_features: [siwa_verweilzeit_j],                                        gp_features_onehot: [hydroraum, gw_gespannt]}
+fok_only:                {gp_features: [fok],                                                       gp_features_onehot: []}
+fuk_only:                {gp_features: [fuk],                                                       gp_features_onehot: []}
+fok_fuk:                 {gp_features: [fok, fuk],                                                  gp_features_onehot: []}
+pr1lag_only:             {gp_features: [pr_1W_lag],                                                 gp_features_onehot: []}
+pr52lag_only:            {gp_features: [pr_52W_lag],                                                gp_features_onehot: []}
+pr52xcorr_only:          {gp_features: [pr_52W_xcorr],                                              gp_features_onehot: []}
+best_fok_fuk:            {gp_features: [siwa_verweilzeit_j, fok, fuk],                              gp_features_onehot: [hydroraum, gw_gespannt]}
+acf_class_only:          {gp_features: [],                                                          gp_features_onehot: [acf_class]}
+siwa_acf_class:          {gp_features: [siwa_verweilzeit_j],                                        gp_features_onehot: [acf_class]}
+best_acf_class:          {gp_features: [siwa_verweilzeit_j],                                        gp_features_onehot: [hydroraum, gw_gespannt, acf_class]}
+gwlk_cont_only:          {gp_features: [gwlk],                                                      gp_features_onehot: []}
+best_gwlk_cont:          {gp_features: [siwa_verweilzeit_j, gwlk],                                  gp_features_onehot: [hydroraum, gw_gespannt]}
+best_gwlk_onehot:        {gp_features: [siwa_verweilzeit_j],                                        gp_features_onehot: [hydroraum, gw_gespannt, gwlk]}
+siwa_fok:                {gp_features: [siwa_verweilzeit_j, fok],                                   gp_features_onehot: []}
+siwa_fuk:                {gp_features: [siwa_verweilzeit_j, fuk],                                   gp_features_onehot: []}
+siwa_fok_fuk:            {gp_features: [siwa_verweilzeit_j, fok, fuk],                              gp_features_onehot: []}
+best_fok:                {gp_features: [siwa_verweilzeit_j, fok],                                   gp_features_onehot: [hydroraum, gw_gespannt]}
+best_fuk:                {gp_features: [siwa_verweilzeit_j, fuk],                                   gp_features_onehot: [hydroraum, gw_gespannt]}
+best_pr1lag:             {gp_features: [siwa_verweilzeit_j, pr_1W_lag],                             gp_features_onehot: [hydroraum, gw_gespannt]}
+best_pr52lag:            {gp_features: [siwa_verweilzeit_j, pr_52W_lag],                            gp_features_onehot: [hydroraum, gw_gespannt]}
+best_pr52xcorr:          {gp_features: [siwa_verweilzeit_j, pr_52W_xcorr],                          gp_features_onehot: [hydroraum, gw_gespannt]}
+best_pr_all:             {gp_features: [siwa_verweilzeit_j, pr_1W_lag, pr_52W_lag, pr_52W_xcorr],   gp_features_onehot: [hydroraum, gw_gespannt]}

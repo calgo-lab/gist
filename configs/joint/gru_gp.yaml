@@ -8,19 +8,13 @@ model:
   gru_hidden: 256
   gru_layers: 4
   gru_dropout: 0.2
-  dropout: 0.2
 training:
   epochs: 50
-  batch_size: 4096
   seed: 40
-  num_workers: 10
-  lr: 0.0002
   grad_clip: 1.0
   early_stopping:
-    monitor: val_loss
     patience: 5
     min_delta: 0.0001
-    mode: min
 spatial_split:
   file: splits/random_max_dist_90.csv
   train_fraction: 0.9
@@ -28,8 +22,6 @@ spatial_split:
   split_seed: 42
   exclude_terms: geometry,x_25833,y_25833
 spatial_gp:
-  backend: gpytorch
-  n_inducing: 64
   jitter: 0.0001
   use_float64: true
   init_noise: 0.1
@@ -40,9 +32,7 @@ spatial_gp:
 joint:
   gru_lr: 0.0002
   gp_lr: 0.0002
-  gp_weight: 0.5
   n_gp_dates: 8
-  gp_subset_size: 100
   gru_pretrained_run_sig: ''
   min_train_wells: 5
   min_val_wells: 2

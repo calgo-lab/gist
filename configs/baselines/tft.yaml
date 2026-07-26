@@ -11,8 +11,6 @@ training:
   batch_size: 4096
   seed: 40
   num_workers: 10
-  lr: 3e-4
-  grad_clip: 1.0
   early_stopping:
     monitor: val_loss
     patience: 5
@@ -36,7 +34,7 @@ runs:
   statics:
   - true
   epochs:
-  - 1
+  - 50
   batch_size: 4096
   seeds:
   - 40
