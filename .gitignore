@@ -27,5 +27,4 @@ reports/presentation_assets/tmp/
 # Python packaging
 *.egg-info/
 dist/
-build/
 reports/comparison/

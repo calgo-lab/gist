@@ -1,0 +1,12 @@
+{
+  "extraPaths": [
+    "src",
+    "src/scripts/pipelines",
+    "src/scripts/pipelines/temporal",
+    "src/scripts/pipelines/spatial",
+    "src/scripts/pipelines/joint",
+    "src/scripts/baselines"
+  ],
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "off"
+}
