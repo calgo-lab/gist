@@ -3,4 +3,4 @@
 - Wells: 1,040
 - Time span: 1951-01-01 → 2024-06-03
 - Overall NA across table: 7.0%
-- Spatiotemporal range summary: `reports/overall/metrics/spatiotemporal_range_summary.csv`
+- Spatiotemporal range summary: `reports/dataset/spatiotemporal_range_summary.csv`

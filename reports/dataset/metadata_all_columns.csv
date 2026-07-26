@@ -1,0 +1,94 @@
+column,group
+id,Identifiers
+id_original,Identifiers
+name,Identifiers
+typ,Identifiers
+parameter,Identifiers
+x_25833,Coordinates and Geometry
+y_25833,Coordinates and Geometry
+gok,Well Construction and Water-Level Class
+ausbausohle,Well Construction and Water-Level Class
+fok,Well Construction and Water-Level Class
+fuk,Well Construction and Water-Level Class
+logger_beginn_lfu,"Monitoring, Source, and Quality"
+logger_beginn,"Monitoring, Source, and Quality"
+messintervall,"Monitoring, Source, and Quality"
+gwlk,Well Construction and Water-Level Class
+sensibel,"Monitoring, Source, and Quality"
+messnetz,"Monitoring, Source, and Quality"
+datenquelle,"Monitoring, Source, and Quality"
+gws_logger,"Monitoring, Source, and Quality"
+outlier_count,"Monitoring, Source, and Quality"
+acf_2018-2023_preproc,Time-Series Signatures
+gws_beginn_ml_prognose,Time-Series Signatures
+ml_prognose,Time-Series Signatures
+dss_standsklassen,Time-Series Signatures
+gws_beginn,Time-Series Signatures
+imputed_proportion,"Monitoring, Source, and Quality"
+interpolated_proportion,"Monitoring, Source, and Quality"
+imputed_proportion_ml_prognose,"Monitoring, Source, and Quality"
+interpolated_proportion_ml_prognose,"Monitoring, Source, and Quality"
+gaps_count,"Monitoring, Source, and Quality"
+min_gap_w,"Monitoring, Source, and Quality"
+max_gap_w,"Monitoring, Source, and Quality"
+konsistenz,Time-Series Signatures
+konsistenz_1991-2020,Time-Series Signatures
+median_1991-2020,Time-Series Signatures
+median_ugok_1991-2020,Time-Series Signatures
+mean_range_1991-2020,Time-Series Signatures
+mean_range_hyj_1991-2020,Time-Series Signatures
+acf_1991-2020,Time-Series Signatures
+geometry,Coordinates and Geometry
+gw_gespannt,Hydrogeologic Context
+siwa_verweilzeit_j,Hydrogeologic Context
+oezg_moor_habitat,Hydrogeologic Context
+distance_wsg_z1,Hydrogeologic Context
+TWI_dgm50_r1000m,Terrain and Recharge Features
+Slope_dgm50_r1000m,Terrain and Recharge Features
+GW_recharge_r1000m,Terrain and Recharge Features
+Percolation_r1000m,Terrain and Recharge Features
+DSD_order1_r1000m,Terrain and Recharge Features
+LP_order1_r1000m,Terrain and Recharge Features
+SD_order1_r1000m,Terrain and Recharge Features
+DSD_order5_r1000m,Terrain and Recharge Features
+LP_order5_r1000m,Terrain and Recharge Features
+SD_order5_r1000m,Terrain and Recharge Features
+range_ratio_1991-2020,Time-Series Signatures
+skew,Time-Series Signatures
+min_month,Time-Series Signatures
+max_month,Time-Series Signatures
+longest_recession,Time-Series Signatures
+parde_seasonality,Time-Series Signatures
+interannual_variation,Time-Series Signatures
+low_pulse_count,Time-Series Signatures
+high_pulse_count,Time-Series Signatures
+low_pulse_duration,Time-Series Signatures
+high_pulse_duration,Time-Series Signatures
+baseflow_index,Time-Series Signatures
+uEZG_Zuordnung,Hydrogeologic Context
+hydroraum,Hydrogeologic Context
+HGN_anthro,Hydrogeologic Context
+DFU,Hydrogeologic Context
+KIT_rank_old,Model-Derived Scores
+MST_pro_uEZG,Hydrogeologic Context
+MeanDist5clostestMST,Hydrogeologic Context
+hydroraum_1991-2020,Hydrogeologic Context
+dropped_lfu,"Monitoring, Source, and Quality"
+PCA_R2,Model-Derived Scores
+trend_slope_GS,Time-Series Signatures
+trend_bewertung_GS,Time-Series Signatures
+KIT_rank,Model-Derived Scores
+KIT_rank_RMSE,Model-Derived Scores
+LSTM_16w_NSE,Model-Derived Scores
+TFT_16w_NSE,Model-Derived Scores
+LSTM_16w_RMSE,Model-Derived Scores
+TFT_16w_RMSE,Model-Derived Scores
+Cluster_1980,Clustering Features
+Silhouette_score_1980,Clustering Features
+Cluster_1990,Clustering Features
+Silhouette_score_1990,Clustering Features
+pr_1W_lag,Precipitation-Derived Features
+pr_1W_xcorr,Precipitation-Derived Features
+pr_52W_lag,Precipitation-Derived Features
+pr_52W_xcorr,Precipitation-Derived Features
+acf_class,Time-Series Signatures
