@@ -14,10 +14,10 @@ import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[4]
 PY = sys.executable
-GP_CONFIG = ROOT / "configs" / "gp.yaml"
-GRU_CONFIG = ROOT / "configs" / "gru.yaml"
-GP_EVAL = ROOT / "src/scripts/joint/spatial/gp_eval.py"
-HPO_DIR = ROOT / "reports/gp/hpo"
+GP_CONFIG = ROOT / "configs" / "gp" / "gp.yaml"
+GRU_CONFIG = ROOT / "configs" / "gru" / "gru.yaml"
+GP_EVAL = ROOT / "src/scripts/pipelines/spatial/gp_eval.py"
+HPO_DIR = ROOT / "reports/metrics/gp/hpo"
 
 
 def load_yaml(path):
@@ -110,7 +110,13 @@ def main():
     max_trials = int(hpo_cfg.get("max_trials", 12))
     random_seed = int(hpo_cfg.get("random_seed", 42))
     hpo_name = str(hpo_cfg.get("name", "gp_hpo"))
-    gp_config_path = str(hpo_cfg.get("gp_config", "")).strip()
+    gp_config = hpo_cfg.get("gp_config", "")
+    if isinstance(gp_config, dict):
+        gp_config_path = f"/tmp/{hpo_name}_gp_config.yaml"
+        with open(gp_config_path, "w") as f:
+            yaml.dump(gp_config, f, sort_keys=False)
+    else:
+        gp_config_path = str(gp_config).strip()
 
     keys = sorted(search_space.keys())
     vals = [search_space[k] for k in keys]

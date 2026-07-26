@@ -13,21 +13,22 @@ import torch
 import yaml
 from sklearn.preprocessing import StandardScaler
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[4]
 SRC_ROOT = ROOT / "src"
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 for _p in [
     str(SRC_ROOT),
     str(SCRIPT_DIR),
-    str(SCRIPT_DIR / "temporal"),
-    str(SCRIPT_DIR / "spatial"),
+    str(SCRIPT_DIR.parent / "temporal"),
+    str(SCRIPT_DIR.parent / "spatial"),
 ]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
 from libs.spatial_split import resolve_split_path
 from libs.run_registry import lookup_run_id
+from libs.experiment import resolve_experiment, snapshot_run, parse_set_overrides, apply_overrides
 from gru_model import GRUSeq2Seq
 from gp_layer import GPLayer
 
@@ -149,15 +150,29 @@ def _nrmse(pred, real):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="configs/joint/gru_gp.yaml")
+    parser.add_argument("--experiment", default=None,
+                        help="registry entry from configs/experiments.yaml (beats --config)")
+    parser.add_argument("--set", dest="set_overrides", nargs="*", default=None,
+                        metavar="KEY=VALUE", help="extra dotted overrides, applied last")
     parser.add_argument("--run-sig", default=None, help="Joint run signature (auto-resolved from config if omitted)")
     parser.add_argument("--split", default="test", choices=["val", "test"],
                         help="Which spatial split to evaluate: 'val' (spatial_val) or 'test' (spatial_test, default)")
     parser.add_argument("--date-freq", default="D", help="Resample freq for evaluation dates (default: D = daily/all unique dates)")
     parser.add_argument("--eval-batch-size", type=int, default=512, help="GRU inference batch size per date")
+    parser.add_argument("--use-learned-kernel", action="store_true",
+                        help="EXPERIMENT: skip the MLL re-pretrain and use the Phase-B learned kernel "
+                             "directly. Writes to eval/<split>_learnedkernel/ to avoid overwriting the baseline.")
     args = parser.parse_args()
 
     data_cfg = _load_yaml(ROOT / "configs" / "data.yaml")
-    gru_cfg = _load_yaml(ROOT / args.config)
+    _cli_overrides = parse_set_overrides(args.set_overrides)
+    if args.experiment:
+        gru_cfg, _entry = resolve_experiment(args.experiment, extra_overrides=_cli_overrides)
+    else:
+        gru_cfg = _load_yaml(ROOT / args.config)
+        if _cli_overrides:
+            apply_overrides(gru_cfg, _cli_overrides)
+        _entry = {"base": args.config, "script": "src/scripts/pipelines/joint/gru_gp_eval.py", "overrides": {}}
 
     dataset = gru_cfg.get("dataset", "full_merged")
     data_cfg_gru = gru_cfg.get("data", {})
@@ -222,6 +237,9 @@ def main():
     gws_full = _load_dataset(data_path)
     if "gw_gespannt" in gws_full.columns:
         gws_full["gw_gespannt_bin"] = (gws_full["gw_gespannt"] == "gespannt").astype("float32")
+    if gru_cfg.get("add_hydroraum_onehot", False) and "hydroraum" in gws_full.columns:
+        for cat in ["Entlastungsgebiete", "Transitgebiete", "Speisungsgebiete"]:
+            gws_full[f"hydroraum_{cat}"] = (gws_full["hydroraum"] == cat).astype("float32")
     gws_train_wells = gws_full[gws_full["id"].isin(train_ids)].copy()
 
     static_cols = [c for c in gws_train_wells.columns if re.search(STATIC_FEATURE_REGEX, c)]
@@ -259,7 +277,6 @@ def main():
         for wid in raw_coords
     }
 
-    # Build combined GP input dict (coords + extra features if trained with them)
     gp_config = gp_ckpt["gp_config"]
     gp_features = gp_config.get("gp_features", [])
     gp_features_onehot = gp_config.get("gp_features_onehot", [])
@@ -374,14 +391,20 @@ def main():
                 pretrain_X[h_idx].append(X_train_sp.cpu())
                 pretrain_y[h_idx].append((y_pred_norm[:, h_idx] * stds_t + means_t).cpu())
 
-    # Phase 2: re-pretrain GP kernels per horizon (matches decoupled eval)
-    print(f"Re-pretraining GP kernels ({pretrain_steps} steps, lr={pretrain_lr}, max_pts={max_pretrain_pts})...")
-    for h_idx in range(out_len):
-        X_all = torch.cat(pretrain_X[h_idx], dim=0).to(device)
-        y_all = torch.cat(pretrain_y[h_idx], dim=0).to(device)
-        _pretrain_mll_kernel(gp_models[h_idx], X_all, y_all, n_steps=pretrain_steps, lr=pretrain_lr, max_train_pts=max_pretrain_pts, device=device)
-        gp_models[h_idx].eval()
-    print("GP kernel pretrain done.")
+    # Phase 2: re-pretrain GP kernels per horizon (matches decoupled eval),
+    # UNLESS --use-learned-kernel: then keep the Phase-B kernel loaded from gp_models.pt.
+    if args.use_learned_kernel:
+        print("EXPERIMENT: using Phase-B LEARNED kernel directly (skipping MLL re-pretrain).")
+        for h_idx in range(out_len):
+            gp_models[h_idx].eval()
+    else:
+        print(f"Re-pretraining GP kernels ({pretrain_steps} steps, lr={pretrain_lr}, max_pts={max_pretrain_pts})...")
+        for h_idx in range(out_len):
+            X_all = torch.cat(pretrain_X[h_idx], dim=0).to(device)
+            y_all = torch.cat(pretrain_y[h_idx], dim=0).to(device)
+            _pretrain_mll_kernel(gp_models[h_idx], X_all, y_all, n_steps=pretrain_steps, lr=pretrain_lr, max_train_pts=max_pretrain_pts, device=device)
+            gp_models[h_idx].eval()
+        print("GP kernel pretrain done.")
 
     # Phase 3: GP prediction using pretrained kernels
     out_rows = []
@@ -439,7 +462,7 @@ def main():
     per_id_nse = []
     per_id_rmse_vals = []
     for wid, g in out_df.groupby("id"):
-        per_id_nse.append({"id": wid, "NSE_over_time": _nse(g["gws_forecast"].to_numpy(), g["gws_true"].to_numpy(), y_bar=train_means.get(wid))})
+        per_id_nse.append({"id": wid, "NSE_over_time": _nse(g["gws_forecast"].to_numpy(), g["gws_true"].to_numpy())})
         per_id_rmse_vals.append(float(np.sqrt(np.mean((g["gws_forecast"].to_numpy() - g["gws_true"].to_numpy()) ** 2))))
     rmse_pw = float(np.median(per_id_rmse_vals)) if per_id_rmse_vals else float("nan")
     print(f"  RMSE_pw: {rmse_pw:.4f}")
@@ -477,8 +500,10 @@ def main():
         })
     per_h_df = pd.DataFrame(per_h_rows).sort_values("horizon")
 
-    eval_dir = run_dir / "eval" / args.split
+    eval_dir = run_dir / "eval" / (f"{args.split}_learnedkernel" if args.use_learned_kernel else args.split)
     eval_dir.mkdir(parents=True, exist_ok=True)
+    snapshot_run(gru_cfg, _entry, eval_dir, experiment_name=args.experiment,
+                 extra_overrides=_cli_overrides or None)
 
     pq.write_table(pa.Table.from_pandas(out_df), eval_dir / "gp_pred.parquet")
     metrics_df = pd.Series(overall).reset_index()

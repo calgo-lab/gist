@@ -19,21 +19,22 @@ import torch
 from sklearn.preprocessing import StandardScaler
 import yaml
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[4]
 SRC_ROOT = ROOT / "src"
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 for _p in [
     str(SRC_ROOT),
     str(SCRIPT_DIR),
-    str(SCRIPT_DIR / "temporal"),
-    str(SCRIPT_DIR / "spatial"),
+    str(SCRIPT_DIR.parent / "temporal"),
+    str(SCRIPT_DIR.parent / "spatial"),
 ]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from libs.spatial_split import resolve_split_path, load_or_create_split
+from libs.spatial_split import resolve_split_path, load_split
 from libs.run_registry import assign_run_id
+from libs.experiment import resolve_experiment, snapshot_run, parse_set_overrides, apply_overrides
 from gru_model import GRUSeq2Seq
 from gp_layer import GPLayer
 
@@ -166,7 +167,7 @@ def _create_coloc_split(gws_df, split_path, split_type, rng_seed, n_test=52, n_v
         d_thresh = np.percentile(mean_dist, 50)
         candidates = eligible.loc[mean_dist <= d_thresh, "id"].values
         print(f"md50 candidates (densest 50th pct): {len(candidates)}")
-    else:  # rand
+    else:
         candidates = eligible["id"].values
 
     rng = np.random.default_rng(rng_seed)
@@ -197,7 +198,6 @@ def _build_gws_lookup(gws_df, well_ids):
     return lookup
 
 
-############### Batch the windows by date
 def _build_date_index(meta_list):
     date_to_idx = defaultdict(list)
     for i, (_, _s, end_t, _ts) in enumerate(meta_list):
@@ -273,10 +273,21 @@ def _resolve_joint_run_sig(gru_cfg, dataset, in_len, out_len, n_epochs, seed,
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="configs/joint/gru_gp.yaml")
+    parser.add_argument("--experiment", default=None,
+                        help="registry entry from configs/experiments.yaml (beats --config)")
+    parser.add_argument("--set", dest="set_overrides", nargs="*", default=None,
+                        metavar="KEY=VALUE", help="extra dotted overrides, applied last")
     args = parser.parse_args()
 
     data_cfg = _load_yaml(ROOT / "configs" / "data.yaml")
-    gru_cfg = _load_yaml(ROOT / args.config)
+    _cli_overrides = parse_set_overrides(args.set_overrides)
+    if args.experiment:
+        gru_cfg, _entry = resolve_experiment(args.experiment, extra_overrides=_cli_overrides)
+    else:
+        gru_cfg = _load_yaml(ROOT / args.config)
+        if _cli_overrides:
+            apply_overrides(gru_cfg, _cli_overrides)
+        _entry = {"base": args.config, "script": "src/scripts/pipelines/joint/gru_gp_train.py", "overrides": {}}
 
     dataset = gru_cfg.get("dataset", "full_merged")
     data_file = _resolve_data_file(data_cfg, dataset)
@@ -339,6 +350,10 @@ def main():
     gws_full = _load_dataset(data_file)
     if "gw_gespannt" in gws_full.columns:
         gws_full["gw_gespannt_bin"] = (gws_full["gw_gespannt"] == "gespannt").astype("float32")
+
+    if gru_cfg.get("add_hydroraum_onehot", False) and "hydroraum" in gws_full.columns:
+        for cat in ["Entlastungsgebiete", "Transitgebiete", "Speisungsgebiete"]:
+            gws_full[f"hydroraum_{cat}"] = (gws_full["hydroraum"] == cat).astype("float32")
 
     hydroraum_filter = gru_cfg.get("hydroraum_filter", None)
     if hydroraum_filter and "hydroraum" in gws_full.columns:
@@ -436,7 +451,6 @@ def main():
         for wid in raw_coords
     }
 
-    # Build combined GP input dict (coords + optional extra features)
     n_feature_dims = 0
     feat_scaler = None
     onehot_categories = {}
@@ -519,7 +533,7 @@ def main():
             x_past_test, x_future_test, x_static_test, test_meta,
             well_stats, gp_coords,
             device, n_steps=gp_pretrain_steps, lr=gp_pretrain_lr,
-            max_pts=int(gp_cfg.get("max_pretrain_pts", 2000)),
+            max_pts=int(gp_cfg.get("max_train_points_per_horizon", 2000)),
         )
 
     gru_optimizer = torch.optim.Adam(model.parameters(), lr=gru_lr)
@@ -559,7 +573,6 @@ def main():
             tags=["gru_gp", "joint"],
         )
 
-    # Loop through epochs
     for epoch in range(1, n_epochs + 1):
         t_epoch = time.time()
         trained_epochs = epoch
@@ -755,6 +768,8 @@ def main():
     )
     run_dir = ROOT / "outputs" / "GRU_GP_JOINT" / f"GRU_GP_JOINT_{run_id}"
     run_dir.mkdir(parents=True, exist_ok=True)
+    snapshot_run(gru_cfg, _entry, run_dir, experiment_name=args.experiment,
+                 extra_overrides=_cli_overrides or None)
     print(f"Run ID: {run_id}  (sig: {run_sig})")
 
     torch.save(

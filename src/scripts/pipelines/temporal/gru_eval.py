@@ -19,8 +19,9 @@ if str(SRC_ROOT) not in sys.path:
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from libs.spatial_split import load_or_create_split, resolve_split_path
+from libs.spatial_split import load_split, resolve_split_path
 from libs.run_registry import lookup_run_id
+from libs.experiment import resolve_experiment, snapshot_run, parse_set_overrides, apply_overrides
 from gru_model import GRUSeq2Seq
 
 STATIC_FEATURE_REGEX = (
@@ -119,10 +120,21 @@ def _build_windows(df, in_len, out_len, cov_cols, well_stats, well_static, targe
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="configs/gru/gru.yaml")
+    parser.add_argument("--experiment", default=None,
+                        help="registry entry from configs/experiments.yaml (beats --config)")
+    parser.add_argument("--set", dest="set_overrides", nargs="*", default=None,
+                        metavar="KEY=VALUE", help="extra dotted overrides, applied last")
     args = parser.parse_args()
 
     data_cfg = _load_yaml("configs/data.yaml")
-    gru_cfg = _load_yaml(args.config)
+    _cli_overrides = parse_set_overrides(args.set_overrides)
+    if args.experiment:
+        gru_cfg, _entry = resolve_experiment(args.experiment, extra_overrides=_cli_overrides)
+    else:
+        gru_cfg = _load_yaml(args.config)
+        if _cli_overrides:
+            apply_overrides(gru_cfg, _cli_overrides)
+        _entry = {"base": args.config, "script": "src/scripts/pipelines/temporal/gru_eval.py", "overrides": {}}
     dataset = gru_cfg.get("dataset", "full_raw")
     data_file = _resolve_data_file(data_cfg, dataset)
 
@@ -168,7 +180,7 @@ def main():
         print(f"gwlk_exclude={gwlk_exclude!r}: {gws_full['id'].nunique()} wells retained")
 
     split_path = resolve_split_path(ROOT / "splits", dataset, spatial_cfg)
-    gws_bb, _ = load_or_create_split(
+    gws_bb, _ = load_split(
         gws_full,
         static_regex=STATIC_FEATURE_REGEX,
         train_fraction=spatial_fraction,
@@ -204,10 +216,20 @@ def main():
     well_stats = scalers["well_stats"]
     static_scaler = scalers.get("static_scaler")
 
-    static_cols = [c for c in gws_bb.columns if re.search(STATIC_FEATURE_REGEX, c)]
-    exclude_static = gru_cfg.get("exclude_static_features", [])
-    if exclude_static:
-        static_cols = [c for c in static_cols if not any(re.search(p, c) for p in exclude_static)]
+    _ckpt_probe = torch.load(model_path, map_location="cpu", weights_only=False)
+    if "static_cols" in _ckpt_probe:
+        static_cols = _ckpt_probe["static_cols"]
+        print(f"Loaded static_cols from checkpoint ({len(static_cols)} features)")
+    else:
+        static_cols = [c for c in gws_bb.columns if re.search(STATIC_FEATURE_REGEX, c)]
+        exclude_static = gru_cfg.get("exclude_static_features", [])
+        if exclude_static:
+            static_cols = [c for c in static_cols if not any(re.search(p, c) for p in exclude_static)]
+        extra_static = gru_cfg.get("extra_static_features", [])
+        if extra_static:
+            extra_present = [c for c in extra_static if c in gws_bb.columns and c not in static_cols]
+            static_cols = static_cols + extra_present
+    del _ckpt_probe
     well_static = {}
     for gid, g in gws_bb.groupby("id"):
         row = g[static_cols].iloc[0].fillna(0.0).to_numpy(dtype=np.float32)
@@ -222,19 +244,17 @@ def main():
     )
 
     end_times = np.array([m[2] for m in meta])
-    test_mask = end_times > np.datetime64(VAL_CUTOFF)
+    TRAIN_CUTOFF_NP = np.datetime64(TRAIN_CUTOFF)
+    VAL_CUTOFF_NP   = np.datetime64(VAL_CUTOFF)
+    val_mask  = (end_times > TRAIN_CUTOFF_NP) & (end_times <= VAL_CUTOFF_NP)
+    test_mask = end_times > VAL_CUTOFF_NP
 
-    x_past_val = x_past_all[test_mask]
-    x_future_val = x_future_all[test_mask]
-    y_val = y_all[test_mask]
-    x_static_val = x_static_all[test_mask]
-    meta_val = [m for i, m in enumerate(meta) if test_mask[i]]
-
-    x_past_cov = cov_scaler.transform(x_past_val[:, :, 1:].reshape(-1, len(COV_COLS))).reshape(x_past_val[:, :, 1:].shape)
-    x_future_val = cov_scaler.transform(x_future_val.reshape(-1, len(COV_COLS))).reshape(x_future_val.shape)
-    x_past_val = np.concatenate([x_past_val[:, :, :1], x_past_cov], axis=2)
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")
+    else:
+        device = torch.device("cpu")
     checkpoint = torch.load(model_path, map_location=device)
     model = GRUSeq2Seq(
         past_input_size=checkpoint["past_input_size"],
@@ -249,54 +269,73 @@ def main():
     model.eval()
 
     eval_batch_size = int(training_cfg.get("batch_size", 4096))
-    with torch.no_grad():
-        chunks = []
-        for start in range(0, len(x_past_val), eval_batch_size):
-            xp = torch.from_numpy(x_past_val[start:start + eval_batch_size]).to(device)
-            xf = torch.from_numpy(x_future_val[start:start + eval_batch_size]).to(device)
-            xs = torch.from_numpy(x_static_val[start:start + eval_batch_size]).to(device)
-            chunks.append(model(xp, xf, xs).cpu().numpy())
+
+    def _run_period(mask):
+        x_p = x_past_all[mask]
+        x_f = x_future_all[mask]
+        y   = y_all[mask]
+        x_s = x_static_all[mask]
+        meta_p = [m for i, m in enumerate(meta) if mask[i]]
+        x_p_cov = cov_scaler.transform(x_p[:, :, 1:].reshape(-1, len(COV_COLS))).reshape(x_p[:, :, 1:].shape)
+        x_f     = cov_scaler.transform(x_f.reshape(-1, len(COV_COLS))).reshape(x_f.shape)
+        x_p     = np.concatenate([x_p[:, :, :1], x_p_cov], axis=2)
+        with torch.no_grad():
+            chunks = []
+            for start in range(0, len(x_p), eval_batch_size):
+                xp = torch.from_numpy(x_p[start:start + eval_batch_size]).to(device)
+                xf = torch.from_numpy(x_f[start:start + eval_batch_size]).to(device)
+                xs = torch.from_numpy(x_s[start:start + eval_batch_size]).to(device)
+                chunks.append(model(xp, xf, xs).cpu().numpy())
         pred = np.concatenate(chunks, axis=0)
-
-    pred_denorm = pred.copy()
-    y_val_denorm = y_val.copy()
-    for i, (gid, _start_time, _end_time, _times) in enumerate(meta_val):
-        mean_y, std_y = well_stats.get(gid, (0.0, 1.0))
-        pred_denorm[i] = pred[i] * std_y + mean_y
-        y_val_denorm[i] = y_val[i] * std_y + mean_y
-
-    rows = []
-    for i, (gid, start_time, _, times) in enumerate(meta_val):
-        for h in range(out_len):
-            rows.append(
-                {
+        pred_denorm = pred.copy()
+        y_denorm    = y.copy()
+        for i, (gid, _st, _et, _times) in enumerate(meta_p):
+            mean_y, std_y = well_stats.get(gid, (0.0, 1.0))
+            pred_denorm[i] = pred[i] * std_y + mean_y
+            y_denorm[i]    = y[i]   * std_y + mean_y
+        rows = []
+        for i, (gid, start_time, _, times) in enumerate(meta_p):
+            for h in range(out_len):
+                rows.append({
                     "id": gid,
                     "startzeitpunkt": pd.to_datetime(start_time),
                     "datum": pd.to_datetime(times[h]),
                     "horizon": h + 1,
                     "gws_forecast": float(pred_denorm[i, h]),
-                    "gws": float(y_val_denorm[i, h]),
-                }
-            )
-    pred_df = pd.DataFrame(rows)
+                    "gws": float(y_denorm[i, h]),
+                })
+        return pd.DataFrame(rows)
 
-    metrics_rows = []
-    for h, g in pred_df.groupby("horizon"):
-        err = g["gws_forecast"] - g["gws"]
-        metrics_rows.append({"horizon": int(h), "RMSE": float(np.sqrt(np.mean(err**2))), "MAE": float(np.mean(np.abs(err)))})
-    metrics_df = pd.DataFrame(metrics_rows).sort_values("horizon")
+    test_df = _run_period(test_mask)
+    val_df  = _run_period(val_mask)
 
-    per_well_rmse = pred_df.groupby("id").apply(
+    def _metrics(df):
+        rows = []
+        for h, g in df.groupby("horizon"):
+            err = g["gws_forecast"] - g["gws"]
+            rows.append({"horizon": int(h), "RMSE": float(np.sqrt(np.mean(err**2))), "MAE": float(np.mean(np.abs(err)))})
+        return pd.DataFrame(rows).sort_values("horizon")
+
+    metrics_df     = _metrics(test_df)
+    val_metrics_df = _metrics(val_df)
+
+    per_well_rmse = test_df.groupby("id").apply(
         lambda g: float(np.sqrt(np.mean((g["gws_forecast"] - g["gws"]) ** 2))),
         include_groups=False,
     )
     rmse_pw = float(per_well_rmse.median())
     print(f"  RMSE_pw: {rmse_pw:.4f}")
+    val_rmse_h16 = float(val_metrics_df[val_metrics_df["horizon"] == 16]["RMSE"].iloc[0]) if 16 in val_metrics_df["horizon"].values else float("nan")
+    print(f"  val RMSE_h16: {val_rmse_h16:.4f}")
 
     pred_dir = run_dir / "predictions"
     pred_dir.mkdir(parents=True, exist_ok=True)
-    pq.write_table(pa.Table.from_pandas(pred_df), pred_dir / "pred.parquet")
-    pq.write_table(pa.Table.from_pandas(metrics_df), run_dir / "metrics.parquet")
+    snapshot_run(gru_cfg, _entry, pred_dir, experiment_name=args.experiment,
+                 extra_overrides=_cli_overrides or None)
+    pq.write_table(pa.Table.from_pandas(test_df),      pred_dir / "pred.parquet")
+    pq.write_table(pa.Table.from_pandas(val_df),       pred_dir / "val_pred.parquet")
+    pq.write_table(pa.Table.from_pandas(metrics_df),   run_dir  / "metrics.parquet")
+    pq.write_table(pa.Table.from_pandas(val_metrics_df), run_dir / "val_metrics.parquet")
 
 
 if __name__ == "__main__":

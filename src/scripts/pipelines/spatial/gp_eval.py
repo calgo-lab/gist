@@ -30,6 +30,12 @@ from sklearn.preprocessing import StandardScaler
 
 from libs.spatial_split import resolve_split_path
 from libs.run_registry import lookup_run_id, read_registry
+from libs.experiment import (
+    resolve_experiment,
+    snapshot_run,
+    parse_set_overrides,
+    apply_overrides,
+)
 from gp_layer import GPLayer
 
 
@@ -136,6 +142,10 @@ def pretrain_mll_kernel(gp, X_train, y_train, n_steps=200, lr=1e-2, max_train_pt
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="configs/gp/gp.yaml")
+    parser.add_argument("--experiment", default=None,
+                        help="registry entry from configs/experiments.yaml (beats --config)")
+    parser.add_argument("--set", dest="set_overrides", nargs="*", default=None,
+                        metavar="KEY=VALUE", help="extra dotted overrides, applied last")
     parser.add_argument("--gru-run-sig", default=None)
     parser.add_argument("--model-prefix", default=None)
     parser.add_argument("--gp-run-tag", default=None)
@@ -148,13 +158,26 @@ def main():
     parser.add_argument("--variational-lr", type=float, default=None)
     parser.add_argument("--use-float64", default=None)
     parser.add_argument("--gp-seed", type=int, default=None)
+    parser.add_argument("--kernel-nu", type=float, default=None)
+    parser.add_argument("--per-date-pretrain", action="store_true", default=False)
+    parser.add_argument("--split-file", default=None)
 
     config_args, _ = parser.parse_known_args()
-    gp_cfg = _load_yaml(ROOT / config_args.config)
+    _cli_overrides = parse_set_overrides(config_args.set_overrides)
+    if config_args.experiment:
+        gp_cfg, _entry = resolve_experiment(config_args.experiment, extra_overrides=_cli_overrides)
+    else:
+        gp_cfg = _load_yaml(ROOT / config_args.config)
+        if _cli_overrides:
+            apply_overrides(gp_cfg, _cli_overrides)
+        _entry = {"base": config_args.config, "script": "src/scripts/pipelines/spatial/gp_eval.py", "overrides": {}}
     parser.set_defaults(
-        model_prefix     = str(gp_cfg.get("model",            "GRU_FCOV")),
+        model_prefix     = str(gp_cfg.get("model_prefix", gp_cfg.get("model", "GRU_FCOV"))),
         gru_run_sig      = gp_cfg.get("gru_run_sig",          None) or None,
         gp_run_tag       = str(gp_cfg.get("gp_run_tag",       "gp_pytorch")),
+        pred_path        = gp_cfg.get("pred_path",            None) or None,
+        gp_seed          = gp_cfg.get("gp_seed",              None),
+        kernel_nu        = float(gp_cfg.get("nu",             1.5)),
         pretrain_steps   = int(gp_cfg.get("pretrain_steps",   200)),
         pretrain_lr      = float(gp_cfg.get("pretrain_lr",    1e-2)),
         max_pretrain_pts = int(gp_cfg.get("max_pretrain_pts", 2000)),
@@ -169,8 +192,8 @@ def main():
         torch.manual_seed(args.gp_seed)
         np.random.seed(args.gp_seed)
 
-    gru_cfg = _load_yaml(ROOT / "configs" / "gru.yaml")
-    tft_cfg = _load_yaml(ROOT / "configs" / "tft.yaml")
+    gru_cfg = _load_yaml(ROOT / "configs" / "gru" / "gru.yaml")
+    tft_cfg = _load_yaml(ROOT / "configs" / "baselines" / "tft.yaml")
     data_cfg = _load_yaml(ROOT / "configs" / "data.yaml")
 
     for key in ["full_raw_path", "full_merged_path", "sample_path", "metadata_path"]:
@@ -217,7 +240,10 @@ def main():
     if not pred_path.exists():
         raise FileNotFoundError(f"pred.parquet not found: {pred_path}")
 
-    split_path = resolve_split_path(ROOT / "splits", dataset, spatial_cfg)
+    if args.split_file:
+        split_path = ROOT / args.split_file
+    else:
+        split_path = resolve_split_path(ROOT / "splits", dataset, spatial_cfg)
     split = pd.read_csv(split_path)
     train_ids   = set(split.loc[split["spatial_split"] == "spatial_train", "id"])
     holdout_ids = set(split.loc[split["spatial_split"].isin(["spatial_holdout", "spatial_test"]), "id"])
@@ -273,18 +299,20 @@ def main():
     if gp_features or gp_features_onehot:
         meta_path = Path(data_cfg.get("metadata_path", ""))
         meta = pd.read_csv(meta_path, sep=";")[["id"] + gp_features + gp_features_onehot]
+        # gwlk (aquifer class) one-hot: collapse to the leading integer class, missing -> "1".
+        if data_cfg.get("gwlk_normalize") and "gwlk" in meta.columns:
+            meta["gwlk"] = meta["gwlk"].astype(str).str.extract(r"^([0-9]+)")[0].fillna("1")
         coords = coords.merge(meta, on="id", how="left")
         for f in gp_features:
             coords[f] = pd.to_numeric(coords[f], errors="coerce")
             coords[f] = coords[f].fillna(coords[f].median())
         for f in gp_features_onehot:
-            dummies = pd.get_dummies(coords[f], prefix=f, drop_first=True).astype(float)
+            dummies = pd.get_dummies(coords[f], prefix=f, drop_first=False).astype(float)
             onehot_cols.extend(dummies.columns.tolist())
             coords = pd.concat([coords.drop(columns=[f]), dummies], axis=1)
     feature_cols = ["x_25833", "y_25833"] + gp_features + onehot_cols + gp_dynamic_features
     pred = pred.merge(coords, on="id", how="left")
 
-    # Merge dynamic features (per id × datum) into pred and keep dyn_df for holdout joins
     if gp_dynamic_features:
         dyn_df = gws[["id", "datum"] + gp_dynamic_features].copy()
         for c in gp_dynamic_features:
@@ -305,7 +333,6 @@ def main():
     print(f"Horizons: {horizons}")
 
     if gp_dynamic_features:
-        # Fit scaler on all training prediction rows (spans all dates, captures dynamic range)
         train_feat_df = pred[pred["id"].isin(train_ids)].dropna(subset=feature_cols)
     else:
         coords_arr = coords.set_index("id")
@@ -323,43 +350,48 @@ def main():
 
         gp = GPLayer(
             n_spatial_dims=n_dims,
+            nu=args.kernel_nu,
             jitter=args.jitter, use_float64=use_float64,
         ).to(device)
 
-        if train_pred_h.empty:
-            print(f"  horizon {h}: no train predictions — skipping kernel pretrain")
-        else:
-            X_all = torch.tensor(
-                feature_scaler.transform(train_pred_h[feature_cols].to_numpy()),
-                dtype=torch.float32, device=device
-            )
-            y_all = torch.tensor(train_pred_h["gws_pred"].to_numpy(), dtype=torch.float32, device=device)
-            print(f"  horizon {h}: pre-training GP kernel ({args.pretrain_steps} steps) on {X_all.size(0)} pts ...")
+        if not args.per_date_pretrain:
+            if train_pred_h.empty:
+                print(f"  horizon {h}: no train predictions — skipping kernel pretrain")
+            else:
+                X_all = torch.tensor(
+                    feature_scaler.transform(train_pred_h[feature_cols].to_numpy()),
+                    dtype=torch.float32, device=device
+                )
+                y_all = torch.tensor(train_pred_h["gws_pred"].to_numpy(), dtype=torch.float32, device=device)
+                print(f"  horizon {h}: pre-training GP kernel ({args.pretrain_steps} steps) on {X_all.size(0)} pts ...")
 
-            pretrain_stats = pretrain_mll_kernel(
-                gp, X_all, y_all, n_steps=args.pretrain_steps,
-                lr=variational_lr, max_train_pts=args.max_pretrain_pts, device=device,
-            )
-            print(
-                f"    pretrain_effect:"
-                f" steps_ok={pretrain_stats['steps_ok']}"
-                f" changed={pretrain_stats['changed']}"
-                f" lr_final={pretrain_stats['lr_final']:.2e}"
-            )
+                pretrain_stats = pretrain_mll_kernel(
+                    gp, X_all, y_all, n_steps=args.pretrain_steps,
+                    lr=variational_lr, max_train_pts=args.max_pretrain_pts, device=device,
+                )
+                print(
+                    f"    pretrain_effect:"
+                    f" steps_ok={pretrain_stats['steps_ok']}"
+                    f" changed={pretrain_stats['changed']}"
+                    f" lr_final={pretrain_stats['lr_final']:.2e}"
+                )
 
-            ls  = float(gp.length_scale().detach().float().view(-1)[0].item())
-            os_ = float(gp.output_scale().detach().float().view(-1)[0].item())
-            nz  = float(gp.noise().detach().float().view(-1)[0].item())
-            if not np.isfinite(ls) or not np.isfinite(os_) or not np.isfinite(nz):
-                print("    non-finite GP hyperparams after pretrain; re-init GP without pretrain for this horizon")
-                gp = GPLayer(
-                    n_spatial_dims=n_dims,
-                    jitter=args.jitter, use_float64=use_float64,
-                ).to(device)
                 ls  = float(gp.length_scale().detach().float().view(-1)[0].item())
                 os_ = float(gp.output_scale().detach().float().view(-1)[0].item())
                 nz  = float(gp.noise().detach().float().view(-1)[0].item())
-            print(f"    ls={ls:.4f}  os={os_:.4f}  noise={nz:.4f}")
+                if not np.isfinite(ls) or not np.isfinite(os_) or not np.isfinite(nz):
+                    print("    non-finite GP hyperparams after pretrain; re-init GP without pretrain for this horizon")
+                    gp = GPLayer(
+                        n_spatial_dims=n_dims,
+                        nu=args.kernel_nu,
+                        jitter=args.jitter, use_float64=use_float64,
+                    ).to(device)
+                    ls  = float(gp.length_scale().detach().float().view(-1)[0].item())
+                    os_ = float(gp.output_scale().detach().float().view(-1)[0].item())
+                    nz  = float(gp.noise().detach().float().view(-1)[0].item())
+                print(f"    ls={ls:.4f}  os={os_:.4f}  noise={nz:.4f}")
+        else:
+            print(f"  horizon {h}: per-date pretrain mode — kernel will be fitted per date")
 
         for dt in dates:
             gws_dt = gws[gws["datum"] == dt][["id", "gws", "x_25833", "y_25833"]]
@@ -378,6 +410,22 @@ def main():
             if pred_sel.empty:
                 skipped.append((dt, h, "no train predictions"))
                 continue
+
+            if args.per_date_pretrain:
+                gp = GPLayer(
+                    n_spatial_dims=n_dims,
+                    nu=args.kernel_nu,
+                    jitter=args.jitter, use_float64=use_float64,
+                ).to(device)
+                X_pt = torch.tensor(
+                    feature_scaler.transform(pred_sel[feature_cols].to_numpy()),
+                    dtype=torch.float32, device=device,
+                )
+                y_pt = torch.tensor(pred_sel["gws_pred"].to_numpy(), dtype=torch.float32, device=device)
+                pretrain_mll_kernel(
+                    gp, X_pt, y_pt, n_steps=args.pretrain_steps,
+                    lr=variational_lr, max_train_pts=args.max_pretrain_pts, device=device,
+                )
 
             X_train_np = feature_scaler.transform(pred_sel[feature_cols].to_numpy())
             y_train_np = pred_sel["gws_pred"].to_numpy()
@@ -489,6 +537,8 @@ def main():
     run_tag = f"{model_prefix}_{gru_run_sig}__{args.gp_run_tag}__predobstrain"
     gp_dir  = ROOT / "outputs" / "gp" / run_tag
     gp_dir.mkdir(parents=True, exist_ok=True)
+    snapshot_run(gp_cfg, _entry, gp_dir, experiment_name=config_args.experiment,
+                 extra_overrides=_cli_overrides or None)
 
     pq.write_table(pa.Table.from_pandas(out_df), gp_dir / "gp_pred.parquet")
     metrics_df = pd.Series(overall_metrics).reset_index()

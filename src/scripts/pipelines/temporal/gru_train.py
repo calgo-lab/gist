@@ -27,8 +27,9 @@ if str(SRC_ROOT) not in sys.path:
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from libs.spatial_split import load_or_create_split, resolve_split_path
+from libs.spatial_split import load_split, resolve_split_path
 from libs.run_registry import assign_run_id
+from libs.experiment import resolve_experiment, snapshot_run, parse_set_overrides, apply_overrides
 from gru_model import GRUSeq2Seq
 
 STATIC_FEATURE_REGEX = (
@@ -141,10 +142,21 @@ def _build_windows(df, in_len, out_len, cov_cols, well_stats, well_static, targe
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="configs/gru/gru.yaml")
+    parser.add_argument("--experiment", default=None,
+                        help="registry entry from configs/experiments.yaml (beats --config)")
+    parser.add_argument("--set", dest="set_overrides", nargs="*", default=None,
+                        metavar="KEY=VALUE", help="extra dotted overrides, applied last")
     args = parser.parse_args()
 
     data_cfg = _load_yaml("configs/data.yaml")
-    gru_cfg = _load_yaml(args.config)
+    _cli_overrides = parse_set_overrides(args.set_overrides)
+    if args.experiment:
+        gru_cfg, _entry = resolve_experiment(args.experiment, extra_overrides=_cli_overrides)
+    else:
+        gru_cfg = _load_yaml(args.config)
+        if _cli_overrides:
+            apply_overrides(gru_cfg, _cli_overrides)
+        _entry = {"base": args.config, "script": "src/scripts/pipelines/temporal/gru_train.py", "overrides": {}}
     dataset = gru_cfg.get("dataset", "full_raw")
     data_file = _resolve_data_file(data_cfg, dataset)
 
@@ -205,7 +217,7 @@ def main():
         print(f"gwlk_exclude={gwlk_exclude!r}: {gws_full['id'].nunique()} wells retained")
 
     split_path = resolve_split_path(ROOT / "splits", dataset, spatial_cfg)
-    gws_bb, _ = load_or_create_split(
+    gws_bb, _ = load_split(
         gws_full,
         static_regex=STATIC_FEATURE_REGEX,
         train_fraction=spatial_fraction,
@@ -229,6 +241,10 @@ def main():
     exclude_static = gru_cfg.get("exclude_static_features", [])
     if exclude_static:
         static_cols = [c for c in static_cols if not any(re.search(p, c) for p in exclude_static)]
+    extra_static = gru_cfg.get("extra_static_features", [])
+    if extra_static:
+        extra_present = [c for c in extra_static if c in gws_bb.columns and c not in static_cols]
+        static_cols = static_cols + extra_present
     print(f"Static features ({len(static_cols)}): {static_cols}")
     well_static = {}
     for gid, g in gws_bb.groupby("id"):
@@ -318,7 +334,12 @@ def main():
             tags=["gru", "decoupled"],
         )
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")
+    else:
+        device = torch.device("cpu")
     model = GRUSeq2Seq(
         past_input_size=x_past_train.shape[-1],
         future_input_size=x_future_train.shape[-1],
@@ -344,6 +365,7 @@ def main():
         "dropout": dropout,
         "out_len": out_len,
         "static_input_size": len(static_cols),
+        "static_cols": static_cols,
     }
 
     for epoch in range(1, n_epochs + 1):
@@ -398,6 +420,7 @@ def main():
                 "dropout": dropout,
                 "out_len": out_len,
                 "static_input_size": len(static_cols),
+                "static_cols": static_cols,
             }
         else:
             no_improve += 1
@@ -429,6 +452,8 @@ def main():
     )
     run_dir = ROOT / "outputs" / "GRU_FCOV" / f"GRU_FCOV_{run_id}"
     run_dir.mkdir(parents=True, exist_ok=True)
+    snapshot_run(gru_cfg, _entry, run_dir, experiment_name=args.experiment,
+                 extra_overrides=_cli_overrides or None)
     print(f"Run ID: {run_id}  (sig: {run_sig})")
 
     torch.save(best_state, run_dir / "model.pt")

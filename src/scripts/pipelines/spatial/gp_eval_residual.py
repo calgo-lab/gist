@@ -113,7 +113,7 @@ def main():
     parser.add_argument("--pretrain-steps", type=int, default=200)
     parser.add_argument("--pretrain-lr", type=float, default=1e-2)
     parser.add_argument("--max-pretrain-pts", type=int, default=2000)
-    parser.add_argument("--date-freq", default="ME")
+    parser.add_argument("--date-freq", default="D")
     parser.add_argument("--jitter", type=float, default=1e-4)
     parser.add_argument("--use-float64", default="true")
     args = parser.parse_args()
@@ -159,7 +159,6 @@ def main():
     gp_features = list(gru_cfg.get("gp_features", []))
     gp_features_onehot = list(gru_cfg.get("gp_features_onehot", []))
 
-    # Load true GWL from original dataset
     cols = ["datum", "id", "gws", "x_25833", "y_25833"]
     gws = (
         pd.read_csv(data_path, usecols=cols, low_memory=False)
@@ -168,16 +167,13 @@ def main():
     )
     gws["datum"] = pd.to_datetime(gws["datum"])
 
-    # Load GRU predictions (has gws_forecast = GRU pred, gws = true value)
     pred = pq.read_table(pred_path).to_pandas()
     pred["datum"] = pd.to_datetime(pred["datum"])
-    # gws_forecast = GRU prediction, gws = actual true value
     if "gws_forecast" not in pred.columns:
         raise ValueError("pred.parquet must have 'gws_forecast' column (GRU predictions)")
     if "gws" not in pred.columns:
         raise ValueError("pred.parquet must have 'gws' column (true values)")
 
-    # Build coordinate + feature lookup
     coords = gws[["id", "x_25833", "y_25833"]].drop_duplicates("id")
     onehot_cols = []
     if gp_features or gp_features_onehot:
@@ -187,7 +183,7 @@ def main():
         for f in gp_features:
             coords[f] = coords[f].fillna(coords[f].median())
         for f in gp_features_onehot:
-            dummies = pd.get_dummies(coords[f], prefix=f, drop_first=True).astype(float)
+            dummies = pd.get_dummies(coords[f], prefix=f, drop_first=False).astype(float)
             onehot_cols.extend(dummies.columns.tolist())
             coords = pd.concat([coords.drop(columns=[f]), dummies], axis=1)
     feature_cols = ["x_25833", "y_25833"] + gp_features + onehot_cols
@@ -215,7 +211,6 @@ def main():
     for h in horizons:
         pred_h = pred[pred["horizon"] == h]
 
-        # Residuals at train wells: gws (true) - gws_forecast (GRU pred)
         train_pred_h = pred_h[pred_h["id"].isin(train_ids)].dropna(
             subset=["x_25833", "y_25833", "gws_forecast", "gws"]
         ).copy()
@@ -253,7 +248,6 @@ def main():
 
             pred_dt_h = pred[(pred["datum"] == dt) & (pred["horizon"] == h)]
 
-            # Train wells: need both GRU forecast and true value for residual
             train_sel = pred_dt_h[pred_dt_h["id"].isin(train_ids)].dropna(
                 subset=["x_25833", "y_25833", "gws_forecast", "gws"]
             )
@@ -261,11 +255,9 @@ def main():
                 skipped.append((dt, h, "no train predictions"))
                 continue
 
-            # Test wells: need GRU forecast to add correction
             test_sel = pred_dt_h[pred_dt_h["id"].isin(holdout_ids)].dropna(
                 subset=["x_25833", "y_25833", "gws_forecast"]
             )
-            # Align with holdout_true (inner join on id)
             test_aligned = holdout_true.merge(test_sel[["id", "gws_forecast"]], on="id", how="inner")
             if test_aligned.empty:
                 skipped.append((dt, h, "no test gru predictions"))
@@ -285,7 +277,6 @@ def main():
             out = test_aligned.copy().reset_index(drop=True)
             out["gws_true"]         = out["gws"]
             out.drop(columns=["gws"], inplace=True)
-            # Final prediction = GRU forecast + GP residual correction
             out["gws_forecast"]     = out["gws_forecast"] + y_residual_t.cpu().numpy()
             out["gws_forecast_std"] = y_std_t.cpu().numpy()
             out["horizon"]          = h
@@ -313,7 +304,6 @@ def main():
     print(f"  nRMSE_pw: {nrmse_pw:.4f}")
     print(f"  NSE: {_nse(pred_all, real_all):.4f}")
 
-    # Save outputs
     out_dir = ROOT / "outputs" / "gp" / f"{model_prefix}_{gru_run_sig}__{args.gp_run_tag}__residual"
     out_dir.mkdir(parents=True, exist_ok=True)
     pq.write_table(pa.Table.from_pandas(out_df), out_dir / "gp_pred.parquet")

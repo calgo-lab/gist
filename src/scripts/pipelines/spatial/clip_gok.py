@@ -1,7 +1,3 @@
-"""
-Post-hoc GOK clipping: clip gws_forecast to gok for unconfined (ungespannt) wells only.
-Recomputes metrics after clipping and saves clipped predictions + metrics.
-"""
 from __future__ import annotations
 
 import sys

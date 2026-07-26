@@ -15,11 +15,11 @@ import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[4]
 PY = sys.executable
-GRU_CONFIG = ROOT / "configs" / "gru.yaml"
-HPO_CONFIG_DEFAULT = ROOT / "configs" / "hpo_gru.yaml"
-TRAIN = ROOT / "src/scripts/joint/temporal/gru_train.py"
-EVAL = ROOT / "src/scripts/joint/temporal/gru_eval.py"
-HPO_RESULTS_DIR = ROOT / "reports/gru/hpo"
+GRU_CONFIG = ROOT / "configs" / "gru" / "archive" / "gru.yaml"
+HPO_CONFIG_DEFAULT = ROOT / "configs" / "gru" / "hpo_gru.yaml"
+TRAIN = ROOT / "src/scripts/pipelines/temporal/gru_train.py"
+EVAL = ROOT / "src/scripts/pipelines/temporal/gru_eval.py"
+HPO_RESULTS_DIR = ROOT / "reports/metrics/gru/hpo"
 
 
 def _load_cfg(path):
