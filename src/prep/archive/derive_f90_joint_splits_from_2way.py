@@ -9,14 +9,13 @@ for p in [ROOT, *ROOT.parents]:
         break
 
 SPLITS_DIR = ROOT / "splits"
-SEEDS      = list(range(42, 52))   # ss42 … ss51
-N_VAL      = 52                    # val wells per seed
+SEEDS      = list(range(42, 52))
+N_VAL      = 52
 
 
 def _source_2way(split_type: str, ss: int) -> Path:
     """Return the canonical 2-way split file for a given type and seed."""
     if split_type == "rand":
-        # rand_f90_ssN exists only for ss42, ss48, ss49; rand90_f90 covers all
         p = SPLITS_DIR / f"spatial_split_full_merged_coloc_rand_f90_ss{ss}.csv"
         if not p.exists():
             p = SPLITS_DIR / f"spatial_split_full_merged_coloc_rand90_f90_ss{ss}.csv"
@@ -98,7 +97,7 @@ def fix_rand_md50(split_type: str, ss: int, dry_run: bool = False) -> dict:
     return {
         "seed": ss, "type": split_type, "out": str(out_path),
         "counts": {"spatial_train": n_train, "spatial_val": n_val, "spatial_test": n_test},
-        "test_matches_2way": n_test,   # by construction
+        "test_matches_2way": n_test,
         "n_2way_holdout": len(holdout_ids),
     }
 

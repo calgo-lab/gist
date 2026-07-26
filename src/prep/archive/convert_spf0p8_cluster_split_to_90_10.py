@@ -1,10 +1,3 @@
-"""
-prepare_90_10_split.py
-
-Creates a spatial split CSV where the joint training's spatial_val wells
-are added to the spatial train set, resulting in a 90/10 train/test split that exactly
-matches what the joint model gets for train+val/test.
-"""
 from pathlib import Path
 import numpy as np
 import pandas as pd
