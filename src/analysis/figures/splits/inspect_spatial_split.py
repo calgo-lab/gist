@@ -2,7 +2,7 @@ from pathlib import Path
 import sys
 import json
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[4]
 SRC_ROOT = ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
@@ -46,7 +46,7 @@ def _plot_admin_boundaries(ax, rings, color="0.35", linewidth=1.1, alpha=0.9):
 def main():
     DATASET = "full_merged"
 
-    tft_cfg = yaml.safe_load((ROOT / "configs" / "tft.yaml").read_text()) or {}
+    tft_cfg = yaml.safe_load((ROOT / "configs" / "baselines" / "tft.yaml").read_text()) or {}
     spatial_cfg = tft_cfg.get("spatial_split", {}) if isinstance(tft_cfg.get("spatial_split", {}), dict) else {}
     split_path = resolve_split_path(ROOT / "splits", DATASET, spatial_cfg)
     split = pd.read_csv(split_path)
@@ -61,13 +61,13 @@ def main():
     boundary_path = ROOT / "data" / "boundaries" / "geoBoundaries-DEU-ADM1_simplified.geojson"
     boundary_rings = _load_boundary_rings(boundary_path, {"Brandenburg"}) if boundary_path.exists() else []
 
-    figures_dir = ROOT / "reports" / "spatial_split" / "figures"
+    figures_dir = ROOT / "reports" / "figures" / "splits"
     figures_dir.mkdir(parents=True, exist_ok=True)
 
     fig, ax = plt.subplots(figsize=(8, 6))
     _plot_admin_boundaries(ax, boundary_rings)
     clusters = sorted(df["cluster"].dropna().unique())
-    colors = "#ff4fa3", "#56B4E9", "#4daf4a", "#ff7f00", "#000000"]
+    colors = ["#ff4fa3", "#56B4E9", "#4daf4a", "#ff7f00", "#000000"]
     markers = ["o", "x", "*", "^"]
 
     for i, c in enumerate(clusters):

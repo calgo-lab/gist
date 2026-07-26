@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import pyarrow.parquet as pq
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[4]
 SHARED_DATA = ROOT.parent / "data"
 REPO_DATA = ROOT / "data"
 
@@ -54,7 +54,7 @@ def main():
     ax.set_title("Well distribution by hydroraum type", fontsize=14)
     ax.set_axis_off()
 
-    out_path = ROOT / "reports" / "figures" / "hydroraum_map.png"
+    out_path = ROOT / "reports" / "figures" / "data" / "hydroraum_map.png"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     print(f"Saved to {out_path}")
