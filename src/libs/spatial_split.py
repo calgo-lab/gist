@@ -8,14 +8,6 @@ from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 
 
-def save_spatial_split(split_df, splits_root, dataset):
-    fname = f"spatial_split_{dataset}.csv"
-    splits_root.mkdir(parents=True, exist_ok=True)
-    out_path = splits_root / fname
-    split_df.to_csv(out_path, index=False)
-    return out_path
-
-
 def resolve_split_path(splits_root, dataset, spatial_cfg=None):
     cfg = spatial_cfg if isinstance(spatial_cfg, dict) else {}
     file_cfg = str(cfg.get("file", "")).strip()
@@ -166,41 +158,15 @@ def spatial_split_random_max_dist(coords_df, train_fraction=0.9, k=3, d_percenti
     return result
 
 
-def load_or_create_split(gws_bb, static_regex, train_fraction, n_clusters, rng_seed, exclude_terms, save_path, split_type="random", max_dist_k=3, max_dist_percentile=25):
+def load_split(gws_bb, static_regex, train_fraction, n_clusters, rng_seed, exclude_terms, save_path, split_type="random", max_dist_k=3, max_dist_percentile=25):
 
-    if save_path and Path(save_path).exists():
-        info = pd.read_csv(save_path)
-        train_ids = set(info.loc[info["spatial_split"] == "spatial_train", "id"])
-        filtered = gws_bb[gws_bb["id"].isin(train_ids)].copy()
-        return filtered, info
-
-    if split_type == "random":
-        return spatial_split_random(
-            gws_bb,
-            train_fraction=train_fraction,
-            rng_seed=rng_seed,
-            save_path=save_path,
+    if not (save_path and Path(save_path).exists()):
+        raise FileNotFoundError(
+            f"split CSV not found: {save_path} — splits are committed, consumers never "
+            f"generate them. Build new splits explicitly via src/prep/build_coloc_split.py."
         )
 
-    if split_type == "max_dist":
-        info = spatial_split_random_max_dist(
-            gws_bb,
-            train_fraction=train_fraction,
-            k=max_dist_k,
-            d_percentile=max_dist_percentile,
-            rng_seed=rng_seed,
-            save_path=save_path,
-        )
-        train_ids = set(info.loc[info["spatial_split"] == "spatial_train", "id"])
-        filtered = gws_bb[gws_bb["id"].isin(train_ids)].copy()
-        return filtered, info
-
-    return spatial_split_kmeans(
-        gws_bb,
-        static_regex=static_regex,
-        train_fraction=train_fraction,
-        n_clusters=n_clusters,
-        rng_seed=rng_seed,
-        exclude_terms=exclude_terms,
-        save_path=save_path,
-    )
+    info = pd.read_csv(save_path)
+    train_ids = set(info.loc[info["spatial_split"] == "spatial_train", "id"])
+    filtered = gws_bb[gws_bb["id"].isin(train_ids)].copy()
+    return filtered, info
