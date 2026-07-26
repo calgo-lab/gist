@@ -1,0 +1,114 @@
+% !TEX root = ../main.tex
+% ============================================================
+%  Chapter 6 — Discussion
+% ============================================================
+
+\chapter{Discussion}
+\label{ch:discussion}
+
+\Cref{sec:contributions_discussion} identifies two findings that run through the results: spatial isolation as the primary driver of interpolation difficulty, and the GP as the primary bottleneck. \Cref{sec:protocol_lessons} draws evaluation design lessons, and \cref{sec:dead_ends_section} documents approaches that did not improve results along with the limitations of this work.
+
+% ============================================================
+\section{Spatial Isolation and the GP Bottleneck}
+\label{sec:contributions_discussion}
+% ============================================================
+
+The first finding is that spatial isolation drives interpolation difficulty: seeds and splits that draw spatially isolated test wells produce systematically higher error, and the distance--error relationship holds both across seeds and within seeds, meaning that within any given seed, wells farther from training neighbors also show higher error (\cref{sec:distance_error}). The second is the GP bottleneck: the GRU's temporal predictions at training wells are already accurate enough that substituting them with true observations changes interpolation error by less than 0.003\,m (\cref{sec:bottleneck}), so progress on the forecast-anywhere problem requires better spatial modeling, not a better temporal model.
+
+\subsection{Spatial Isolation Drives Interpolation Difficulty}
+
+Recharge zones are characterized by variable infiltration rates and subsurface properties that produce GWL dynamics that change more sharply over short distances than in discharge zones, where groundwater flows more uniformly, so nearby wells tend to share similar levels. The GP's Mat\'{e}rn-3/2 kernel uses a single smoothness parameter for the whole study area, which means it treats spatial similarity as decaying at the same rate everywhere; recharge zones are where GWL can change sharply over short distances, a pattern a single smoothness parameter cannot fit. Hydrogeological zone works as a GP feature because it groups wells that tend to have similar GWL dynamics, beyond what their location alone would predict. All other tested feature groups either give smaller improvements or even degrade performance relative to the coordinate-only baseline.
+
+\subsection{The GP Bottleneck}
+
+Running 40 split seeds across hundreds of GP configurations would not have been practical with TFT at its training cost; the GRU's speed makes that evaluation affordable. The multi-seed protocol that establishes the distance--error relationship and quantifies seed-to-seed variance is only possible because the temporal backbone is fast enough to run many times. The speedup's main contribution is to evaluation methodology, not to spatial interpolation quality.
+
+\citet{lim2021temporal} show in their ablation that self-attention is among the most important components of TFT. The GRU has no self-attention, yet matches TFT on Brandenburg. This suggests the dataset's smooth seasonal dynamics do not require attention over long time spans.
+
+% ============================================================
+\section{Evaluation Design Lessons}
+\label{sec:protocol_lessons}
+% ============================================================
+
+\subsection{The Co-Location Constraint}
+
+Without the co-location constraint (forcing wells within 8\,m of each other into the training set), the spatiotemporal two-stage pipeline can achieve misleadingly low RMSE on some test wells by effectively copying a co-located training well. The reported metric is dominated by trivially easy cases, not by genuine spatial interpolation. Any spatial evaluation protocol that uses random well splitting without checking for co-located wells may systematically overestimate interpolation performance.
+
+\subsection{Multi-Seed Evaluation and Spatial Composition}
+
+The random split exhibits substantial standard deviation across seeds. The primary cause is that seeds differ in the median distance from test wells to their nearest training neighbor: seeds that draw spatially isolated test wells face a fundamentally harder interpolation problem. This is confirmed by the seed-level analysis in \cref{sec:distance_error}, which shows a positive Spearman correlation ($\rho = 0.603$; \cref{sec:distance_error}) between median nearest-training-well distance and per-seed RMSE. A study relying on a single split seed may therefore report metrics that reflect its spatial composition as much as model quality.
+
+\subsection{Alternative Splits Confirm, Not Replace, the Post-Hoc Distance Analysis}
+\label{sec:alt_split_lessons}
+
+The sensitivity analysis in \cref{sec:split_sensitivity} shows that the Dense-area, Sparse-area, and Cluster-stratified splits all reach qualitatively consistent conclusions with the primary random split. Because each alternative split draws a different training set, the results come from independently trained models rather than post-hoc reselections of the random split, which makes the agreement a genuine robustness check. The post-hoc seed analysis on the random split is the more general characterisation, since it spans the full range of spatial configurations rather than fixing difficulty to a chosen range. None of the three alternatives is appropriate as a primary evaluation: the Dense-area split has artificially low RMSE, the Sparse-area split has artificially high RMSE, and the Cluster-stratified split's test-well count is not exactly controllable since cluster sizes are discrete.
+
+% ============================================================
+\section{Limitations and Dead Ends}
+\label{sec:dead_ends_section}
+% ============================================================
+
+\subsection{Negative Results and Dead Ends}
+\label{sec:dead_ends}
+
+The following directions do not improve results. They are documented because negative results narrow the hypothesis space and prevent revisiting disproved approaches.
+
+\subsubsection{Residual GP (\texorpdfstring{nRMSE $\approx$ 192}{nRMSE approx 192})}
+
+Training the GP on residuals (the difference between true observations and GRU predictions at training wells) rather than raw GWL values fails completely: nRMSE\textsubscript{pw} $\approx 192$.
+
+GRU prediction errors are not spatially correlated. They are well-specific, as each well has its own dynamics that the global model cannot fully capture (e.g., local recharge anomalies, well-specific seasonal timing). A residual GP therefore fits noise rather than a spatially coherent field and extrapolates that noise catastrophically to test wells.
+
+There is a positive reading of this failure. The GRU's predictions at each well are accurate enough that the residuals show no spatial pattern. If the GRU leaves a systematic trend across locations, a GP could pick that up; since the errors are well-specific rather than regional, the residual GP is just fitting noise.
+
+
+\subsubsection{Surface Elevation Clipping}
+
+A hypothesis is investigated that clipping GWL predictions to ground surface elevation (GSE, i.e.\ $\hat{y} \leftarrow \min(\hat{y}, \text{GSE})$) might improve performance, since physically the water table cannot rise above the ground surface. Testing GSE clipping on all evaluated model configurations yields $\Delta = 0.000$ in all cases: the model never predicts GWL above the ground surface, so the clipping constraint is never active.
+
+\subsubsection{Depth to Groundwater Table as GP Feature}
+
+Following a suggestion by a collaborator at BGR, depth to the groundwater table (DGT) is tested as an additional GP spatial feature on the random split in a dedicated side experiment; because this experiment is conducted after the main GP feature ablation protocol has been finalized, the result is reported here rather than in \cref{sec:gp_ablation}. DGT alone is harmful (nRMSE\textsubscript{pw} $\approx 8.66$ vs.\ $4.444$ for hydrogeological zone alone); combined with hydrogeological zone it also performs worse than hydrogeological zone alone (nRMSE\textsubscript{pw} $\approx 6.98$ vs.\ $4.444$). DGT does not improve spatial interpolation and is excluded from the selected feature set.
+
+\subsection{Limitations}
+\label{sec:limitations}
+
+\paragraph{Hyperparameter search scope.}
+Hyperparameters for the GRU and GP are found via iterative grid search. For the jointly trained model, automated HPO with Optuna \citep{akiba2019optuna} finds h128/l5 with coupling weight $\lambda = 0.034$, but a manual architecture sweep shows h256/l4 with $\lambda = 10^{-4}$ gives better interpolation performance. The automated result is unreliable for two reasons: Optuna ran only a limited number of trials, and each trial was evaluated on a single spatial split, where variance is high enough to flip architecture rankings (\cref{sec:seed_design}).
+
+\paragraph{HYRAS reanalysis weather data.}
+All experiments use HYRAS~5.0 reanalysis data for the meteorological forcing inputs, including the 16-week forecast horizon. HYRAS~5.0 is a retrospective reconstruction that is available only for the past; it is not a weather forecast. In operational deployment, accurate precipitation and temperature forecasts over 16 weeks are unavailable, and forecast uncertainty would propagate into GWL predictions. The RMSE figures reported here therefore represent an upper bound on achievable performance under perfect meteorological information. The gap between HYRAS-driven and forecast-weather-driven performance is not quantified in this thesis.
+
+\paragraph{GP calibration failure.}
+The GP's 95\% nominal prediction intervals achieve only approximately 60\% empirical coverage (mean $0.602 \pm 0.043$ across 40 seeds; Prediction Interval Coverage Probability, PICP) at spatial test wells (production two-stage spatiotemporal pipeline). This is a structural property of GP posterior inference applied to spatial extrapolation: kernel hyperparameters are optimized on training-well data, which may have a different spatial density and correlation structure than the test region. Overconfident here means the kernel-derived posterior intervals are too narrow: the posterior variance is bounded by the output scale $\sigma_f^2$ learned on training data and does not automatically widen for isolated test locations where the actual prediction error exceeds that prior scale. Note that poor coverage is not a direct consequence of poor point predictions: a model with the same NSE but wider uncertainty intervals would still achieve 95\% PICP. The low coverage reflects that the GP underestimates its own uncertainty, which is a separate issue from prediction accuracy.
+
+
+\paragraph{Static feature availability at genuinely unmonitored locations.}
+The GP relies on a single static hydrogeological feature, hydrogeological zone, selected by the feature ablation in \cref{sec:gp_ablation}. Residence time and aquifer confinement are evaluated in the ablation but excluded because both degrade interpolation performance relative to the coordinate-only baseline. At genuinely unmonitored locations (where no well has ever been installed), hydrogeological zone may not be available or may require spatial interpolation from the nearest monitoring records. The accuracy of such interpolated features, and their effect on GP predictions, is not evaluated in this thesis.
+
+\paragraph{Single study area.}
+All experiments are conducted exclusively on the Brandenburg LfU monitoring network. The spatial density of this network (1{,}040 wells over 29{,}654\,km$^2$), the hydrogeological diversity of the region, and the HYRAS~5.0 meteorological forcing are specific to this setting. Whether the GRU-GP pipeline and the optimal feature set generalize to other regions, countries, or monitoring densities remains an open question. The pipeline architecture is likely to transfer to other settings, but the feature selection is less certain. Hydrogeological zone works here because it proxies for the spatial correlation structure of GWL dynamics in Brandenburg. In regions where no analogous categorical variable captures that structure, or where GWL dynamics do not follow the same zone pattern, the GP is reduced to coordinate-only interpolation and performance would likely be closer to the coordinate-only baseline in \cref{tab:gp_ablation}.
+
+\paragraph{GRU seed variance not fully characterized.}
+The multi-seed evaluation uses a single GRU seed (the best HPO configuration, on the median performing seed out of 10 GRU model seeds) for all spatial interpolation experiments. While GRU performance is stable at this data scale (dominated by split seed variance rather than model initialization), the full sensitivity of the spatial interpolation results to GRU seed choice is not quantified. The same applies to the GP: all spatial experiments use a single GP seed, and sensitivity to GP random initialization is not quantified.
+
+\paragraph{Joint model feature parity.}
+The original 40-seed joint runs use 32 GRU static inputs, as hydroraum one-hot features are present in the GP but absent from the GRU, while the two-stage pipeline uses 35. Additional re-runs with matching inputs ($n_\text{static} = 35$) show no meaningful difference (mean $\Delta\text{RMSE}_\text{pw} = -0.011\,\text{m}$, paired $t$-test $p = 0.311$), so the original joint results are valid for comparison.
+
+\paragraph{Joint training per-date batching.}
+Both Phase~A and Phase~B of joint training iterate over dates, taking all training wells active on a given date as a batch. Per-date batching is necessary for Phase~B because the GP conditions on all training-well predictions at a single point in time. It is not necessary for Phase~A, which is standard GRU temporal training with no spatial component and could instead use random batching at a larger batch size, as the two-stage GRU does. This would reduce the number of gradient steps per epoch in Phase~A substantially and speed up joint training.
+
+\paragraph{Metric sensitivity.}
+All feature comparisons in \cref{sec:gp_ablation} use median per-well nRMSE as the primary criterion because IQR normalization accounts for wells with very different absolute GWL variance. Using per-well RMSE instead could favour different features: a feature that concentrates gains at high-variance wells looks better under nRMSE than under absolute RMSE. This sensitivity between the two metrics is not systematically explored across all feature combinations.
+
+\paragraph{Co-location constraint on alternative splits.}
+The alternative split strategies in \cref{sec:split_sensitivity} are also affected by the co-location constraint. Around 30\% of wells are pre-assigned to the training set before any split procedure runs, since co-located pairs always go to training. The pool of wells that the Dense-area, Sparse-area, and Cluster-stratified splits actually operate on is therefore already filtered. Co-located wells make up around 15\% of unique physical locations, so the effect is limited, but all three splits are working from an already-filtered pool, not the full network, which means none of the three split strategies operates on the complete well set as designed.
+
+\paragraph{Limitations of the random split.}
+The primary random split is not fully random: the co-location constraint pre-assigns a subset of wells to the training set before random selection runs on the remainder. This is unavoidable unless all but one well per group of co-located wells is dropped, and the effect on aggregate RMSE is small since co-located wells account for a small fraction of unique locations. The reported results should be understood as coming from a random draw over the subset of wells not pre-assigned by the co-location constraint, not the full network.
+
+% ============================================================
+\section{Chapter Summary}
+% ============================================================
+
+This chapter's two main conclusions are that spatial isolation drives interpolation difficulty and that the GP, not the GRU, is where most of the pipeline's error comes from. Recharge zones are roughly 7$\times$ harder to interpolate than discharge zones at matched distances (\cref{sec:hydroraum_by_zone}). Three evaluation lessons follow: the co-location constraint prevents trivially easy test cases, multi-seed evaluation is necessary because spatial composition dominates variance, and metric choice can reverse feature rankings. None of the dead-end approaches documented here improve on the standard two-stage pipeline, and feature selection is likely less transferable than the pipeline architecture since hydrogeological zone works here because it proxies a spatial correlation structure specific to Brandenburg. The following chapter draws together the main findings and outlines future directions.

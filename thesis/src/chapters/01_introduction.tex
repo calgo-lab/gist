@@ -1,0 +1,96 @@
+% !TEX root = ../main.tex
+\chapter{Introduction}
+\label{ch:introduction}
+
+Groundwater supplies water for drinking, agriculture, and ecosystems worldwide \citep{taylor2013groundwater},
+but monitoring networks cover only a fraction of the areas that depend on it.
+The German state of Brandenburg is characterized by a continental climate,
+low annual precipitation (500--700\,mm \citep{dwd2024klimaatlas}), declining groundwater recharge \citep{francke2025groundwater}, and
+extensive agricultural (49\%) and forested (35\%) land \citep{statistikbb2023}. 
+Since both agriculture and forests rely heavily on groundwater, and the low 
+precipitation limits natural recharge, groundwater availability is
+crucial for agricultural productivity and forest health. Reliable groundwater level (GWL) forecasts
+are therefore essential for farmers, authorities, land managers, and planners.
+
+The Brandenburg State Office for the Environment (LfU) operates a dense network of over 2{,}100
+monitoring wells \citep{lfu2024styx}, of which 1{,}040 remain after quality filtering. The wells are recording weekly 
+GWL observations that span more than seven decades. These wells are spread across 
+Brandenburg's full territory but naturally cannot provide continuous spatial coverage,
+which leaves the vast majority of areas effectively unmonitored. The key 
+challenge this thesis deals with is:
+
+\begin{tcolorbox}[researchquestion]
+Given past groundwater level observations at monitored well locations,
+can we reliably predict groundwater levels at unmonitored locations at future
+horizons?
+\end{tcolorbox}
+
+The long-term goal is reliable forecasting at unmonitored locations, in other words
+a ``forecast anywhere'' system.
+
+For Brandenburg's farmers, foresters, and water managers, knowing what the groundwater level will do over the next few weeks at their specific location naturally matters more than knowing what it does at the nearest monitoring well. Decisions about irrigation scheduling, emergency groundwater pumping during drought, and long-term land management all depend on local conditions. The LfU network is dense by any standard, but roughly 2{,}100 wells (of which 1{,}040 meet the quality criteria for this study) still cannot cover 29{,}654\,km$^2$ continuously. A practical ``forecast-anywhere'' deployment requires reliable GWL estimation at any point in the state on demand.
+
+This problem has two dimensions:
+
+\begin{description}
+  \item[Temporal] Predicting future GWL at a well given its history and input features
+  \item[Spatial] Interpolating temporal GWL forecasts to a location where no observations exist
+\end{description}
+
+Handling both simultaneously, and therefore predicting GWL at locations where no observations
+exist, is the core challenge of spatiotemporal GWL forecast interpolation as formulated in this thesis.
+
+\section{Problem Statement}
+\label{sec:problem_statement}
+
+Formally, the training data consist of time series $y_{i,t}$ of groundwater levels at wells 
+$i \in \mathcal{W}_\text{train}$ for time steps $t = 1, \ldots, T$. Given a set of dynamic 
+and static features, our goal is to predict the future GWL time series $\hat{y}_{j, t+1:t+H}$ at
+test wells $j \in \mathcal{W}_\text{test}$, where $\mathcal{W}_\text{train} \cap
+\mathcal{W}_\text{test} = \emptyset$. Forecasts are produced at all forecast horizons from 1 to $H = 16$ weeks ahead.
+
+At the spatial training wells $\mathcal{W}_\text{train}$, the time series are further divided into a temporal training period, a validation period, and a temporal test period. The temporal test period also provides the true observations used by the true-observation interpolation baseline.
+
+The key challenge that distinguishes this problem from standard time series forecasting is that 
+the test wells are entirely unseen by the model during training. Spatial interpolation comes 
+entirely from learned relationships between hydrogeological features and GWL dynamics.
+
+\section{Contributions}
+\label{sec:contributions}
+
+Reliable spatiotemporal GWL estimation at unmonitored locations would matter for water management and drought response, but whether such estimation can be done reliably is not obvious. The spatial interpolation step could fail because temporal forecasts are too noisy, because the GP cannot generalize across the spatial structure of GWL in Brandenburg, or because no available hydrogeological feature carries enough information to bridge the gap between monitored and unmonitored locations. This thesis investigates these potential failure modes directly. That the GRU can match the TFT at a fraction of the training cost is not a contribution in isolation; it is what makes everything below possible. The contributions are:
+
+\begin{enumerate}
+  \item A \textbf{GRU sequence-to-sequence model} that matches the predictive performance of the
+  Temporal Fusion Transformer of \citet{kunz2025} on the Brandenburg dataset while being nearly two
+  orders of magnitude faster to train, which enables full hyperparameter optimization (HPO),
+  feature ablation studies, multi-seed stability analysis, joint training runs, and a large
+  number of preliminary experiments.
+
+  \item An analysis of how \textbf{interpolation difficulty scales with spatial isolation}
+  across 40 random split seeds, which shows that seeds drawing spatially isolated test wells
+  are systematically harder to predict. This finding motivates the 40-seed evaluation design.
+
+  \item A \textbf{spatiotemporal two-stage pipeline} (GRU for temporal forecasting, GP for
+  spatial interpolation), evaluated under the co-location constraint on a \textbf{random 90/10
+  split} of 104 test wells.
+
+  \item A \textbf{GP feature ablation study} over 30 spatial feature configurations that
+  shows hydrogeological zone to be the single most informative covariate for spatial
+  interpolation, with no other feature or combination matching its performance on the main 90/10 random spatial split.
+
+  \item An analysis of the \textbf{true-observation interpolation baseline} which replaces GRU predictions with
+  true observations as GP input and shows that the gap between using
+  true observations and GRU predictions as GP input is negligible, which means that temporal
+  forecast quality is not the primary bottleneck for the spatiotemporal forecast interpolation problem.
+
+  \item An analysis of \textbf{distance-dependent effects in jointly trained spatiotemporal
+  modeling}: on average, end-to-end joint training of the temporal and spatial components does not outperform the two-stage pipeline,
+  but for test wells more than roughly 4.5\,km from any training well the ranking reverses,
+  which is the setting where the two-stage pipeline is least reliable.
+\end{enumerate}
+
+\section{Thesis Structure}
+\label{sec:structure}
+
+Chapter~\ref{ch:related_work} surveys prior work on deep learning for hydrology, GWL forecasting with machine learning, and spatial interpolation approaches. Chapter~\ref{ch:data} describes the Brandenburg monitoring network, the static and dynamic features used as model inputs, and the temporal and spatial structure of the data. Chapter~\ref{ch:methods} introduces the GRU and GP components, the spatiotemporal pipeline designs, and the evaluation protocol. Chapter~\ref{ch:results} reports the empirical findings. Chapter~\ref{ch:discussion} interprets the results, documents approaches that did not work, and discusses the limitations. Chapter~\ref{ch:conclusion} summarises and points to future work.

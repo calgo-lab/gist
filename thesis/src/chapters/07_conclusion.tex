@@ -1,0 +1,65 @@
+% !TEX root = ../main.tex
+\chapter{Conclusion}
+\label{ch:conclusion}
+
+\section{Summary of Findings}
+\label{sec:summary}
+
+This thesis presents GIST (Groundwater Interpolation in Space and Time), a spatiotemporal pipeline for groundwater level forecast interpolation across Brandenburg. The core questions are what limits the pipeline's accuracy and what determines how hard any given prediction is.
+
+A GRU sequence-to-sequence model matches the Temporal Fusion Transformer of \citet{kunz2025} on the Brandenburg dataset, with a median per-well RMSE of 0.088\,m at h\,=\,16 against 0.093\,m for the TFT, at roughly 90$\times$ lower training cost. That speedup makes everything else in this thesis feasible (\cref{tab:pipeline_efficiency}). The hyperparameter optimization, the feature ablation studies, the multi-seed evaluation, and the joint training experiments would all have been impractical at TFT training cost.
+
+The evaluation requires two design choices that turn out to matter. Several wells in the Brandenburg network share identical surface coordinates and are forced into the training set; without this co-location constraint, a random test split can place a test well at the same physical location as a training well, at which point the GP copies a nearby value rather than interpolating, and the measured error does not reflect genuine spatial generalization. The primary evaluation uses a random 90/10 split (104 test wells) repeated over 40 seeds, each drawing a new random 90/10 partition of wells. Running 40 seeds is necessary because seeds differ substantially in how spatially isolated their test wells are, and that isolation is the dominant predictor of per-seed RMSE (\cref{sec:distance_error}).
+
+One of the central findings is about where the bottleneck lies. The two-stage pipeline (GP conditioned on GRU predictions) and a true-observation interpolation baseline (GP conditioned on true observed GWL) differ in per-well RMSE by only 0.003\,m ($p = 0.50$, meaning a difference of this size would arise by chance half the time even if the true gap were zero; \cref{sec:bottleneck}). The GRU's forecast quality is not the limiting factor; the GP's ability to generalize across spatial locations is. At h\,=\,16, the two-stage pipeline achieves a mean per-well RMSE of 1.082\,m, roughly 12$\times$ the GRU's temporal RMSE of 0.088\,m at monitored wells. A systematic GP feature ablation shows that using hydrogeological zone alone is the most beneficial configuration. The reason is visible in per-zone error: at matched nearest-training-well distances, recharge zones are roughly 7$\times$ harder to interpolate than discharge zones (\cref{sec:hydroraum_by_zone}), which means zone membership encodes spatial structure that coordinates alone cannot capture.
+
+The jointly trained model, in which GRU and GP are trained end-to-end with a combined loss, is worse on average ($1.259$\,m vs.\ $1.082$\,m mean per-well RMSE at h\,=\,16). The aggregate hides a distance gradient, though: the two-stage pipeline is better for test wells close to the training network, while the jointly trained model gains an advantage beyond roughly 4.5\,km from the nearest training well. In the Brandenburg monitoring network, most test wells fall within 2\,km of a training neighbor, which is why the aggregate favors the two-stage pipeline. For genuinely isolated locations, the jointly trained model is the stronger choice.
+
+The research question this thesis starts with is whether a dense monitoring network, combined with a spatial interpolation step, can support a forecast-anywhere system. For locations within a few kilometers of the training network, the answer from the Brandenburg data is yes, with median RMSE well under 1\,m for the closest test wells. For genuinely isolated locations the picture is less encouraging: error increases sharply with distance, and joint training only partially closes that gap. Distance to the nearest training well is the dominant constraint, not the quality of the temporal model. The results show what a dense, decades-long monitoring record can achieve and where the hard limits are. Getting reliable predictions far from any monitoring well is still an open problem, and the directions in \cref{sec:future_work} are where that work is most likely to advance. Across most of Brandenburg, monitoring wells are close enough that reliable forecasts are already achievable at the distances reported here. Where monitoring is genuinely sparse, the distance-error relationship quantified in this thesis provides a direct basis for prioritizing where new monitoring infrastructure would reduce forecast uncertainty most.
+
+\section{Future Work}
+\label{sec:future_work}
+
+\paragraph{Neural Processes for end-to-end spatiotemporal modeling.}
+The two-stage spatiotemporal pipeline separates temporal and spatial learning by design. Convolutional
+Conditional Neural Processes \citep{gordon2020convolutional} and related architectures can predict at any new location given a set of observed wells as context, without separating temporal and spatial learning into two stages. These represent the
+most principled alternative to the two-stage approach and should be evaluated on the same
+Brandenburg test set protocol.
+
+\paragraph{Multi-GRU-seed evaluation.}
+The current evaluation uses a single GRU seed. Including three to five GRU seeds in the full
+40-seed spatial evaluation matrix would fully characterize the relative contributions of
+temporal model variance and spatial split variance to the reported uncertainty.
+
+\paragraph{Multi-seed hyperparameter optimization.}
+Hyperparameter search in this thesis uses single-seed evaluations, which have high variance due to the spatial-split sensitivity documented in \cref{sec:seed_design}. Running each trial over multiple spatial splits would reduce that noise and produce a more reliable ranking between candidate architectures. However, because the dominant bottleneck is GP spatial generalization rather than GRU model capacity, better hyperparameter search is unlikely to substantially improve end-to-end interpolation error; the main benefit would be methodological, not a path to dramatically lower RMSE. The same applies to the GP and to the jointly trained model's hyperparameter search. For joint training specifically, which is the component where performance remains furthest behind, improved HPO may offer more practical improvement than refining the GRU configuration further.
+
+\paragraph{Improved joint training architecture.}
+The joint training experiment adapts the two-stage architecture for end-to-end training rather than designing a new architecture from scratch. The two-stage pipeline outperforms it at most distances, and an architecture designed from scratch for joint training might narrow that gap.
+
+\paragraph{Generalization to other monitoring networks.}
+All results are derived from a single study area. Replication on other dense groundwater
+monitoring networks (e.g., the Netherlands Grondwaterregister, the USGS groundwater
+monitoring network, or the monitoring networks of other German states) would test whether the optimal GP feature set and the interpolation baseline gap magnitude
+are specific to Brandenburg's hydrogeology or are transferable.
+
+\paragraph{Integration of physically derived spatial features.}
+The GP relies on a single static feature, hydrogeological zone, selected by the feature ablation in \cref{sec:gp_ablation}. At genuinely unmonitored locations, hydrogeological zone may not be available at the required spatial resolution and would need to be interpolated from regional geological maps. Quantifying how such interpolated zone assignments affect GP predictions is a necessary step toward deployment at locations with no monitoring record.
+
+\paragraph{Removing per-well normalization.}
+The pipeline z-scores each well before training, which makes the GP responsible for reconstructing the spatial mean at test locations (\cref{sec:variation}). \citet{kunz2025} skip this step and use GWL standard deviation as a static input instead. Whether the GIST pipeline works better without per-well normalization is a straightforward ablation to run.
+
+\paragraph{Spatial block holdout for stricter generalization testing.}
+The split strategies evaluated in this thesis draw test wells from the full monitoring network. A harder test would hold out all wells within a contiguous geographic subregion, with no training wells present in that region. Spatial block cross-validation of this kind is the recommended approach for evaluating spatial models when autocorrelation would otherwise inflate apparent performance \citep{roberts2017cross}, and applying it here would assess whether the GRU-GP pipeline generalizes to areas beyond its training region boundaries rather than interpolating between scattered training wells.
+
+\paragraph{Co-located well selection.}
+Right now all co-located wells are forced into training to avoid trivially easy or misleadingly hard test cases (\cref{sec:deduplication}). Keeping only the topmost well from each co-located group eligible for the test set would expand the test pool at the cost of a small reduction in training data, without reintroducing those problems.
+
+\paragraph{Operational weather inputs and forecast uncertainty.}
+All experiments in this thesis use HYRAS~5.0 reanalysis weather data, which is available only retrospectively. In an operational deployment, precipitation and temperature forecasts over 16 weeks carry substantial uncertainty. Quantifying how that uncertainty propagates into GWL predictions, and whether it changes the relative ranking of the pipeline configurations, is a necessary step toward actual deployment.
+
+\paragraph{GP uncertainty calibration.}
+The GP's 95\% prediction intervals achieve only approximately 60\% empirical coverage (PICP) at spatial test wells, reflecting that the GP underestimates its own uncertainty rather than making poor point predictions. Improving this is important if the pipeline is used for risk assessment or decision support rather than point forecasting alone. Spatially adaptive kernels that account for local differences in monitoring density between training and test regions are a natural starting point.
+
+\paragraph{Empirical Bayesian kriging.}
+\citet{zowam2024} replace a global variogram with a local estimate fitted around each prediction point, reducing sensitivity to the stationarity assumption. Adapting this to the GP stage could improve interpolation in regions where the spatial covariance structure differs from the network-wide average, given that zone-specific error varies by nearly an order of magnitude (\cref{sec:hydroraum_by_zone}).

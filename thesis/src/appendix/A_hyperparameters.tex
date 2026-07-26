@@ -1,0 +1,66 @@
+% !TEX root = ../main.tex
+\chapter{Hyperparameter Configurations}
+\label{app:hyperparameters}
+
+\section{Best GRU Configuration (Two-Stage Spatiotemporal Pipeline)}
+\label{app:gru_hpo}
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Hyperparameter} & \textbf{Value} \\
+\midrule
+Hidden dimension        & 256 \\
+Number of layers        & 4 \\
+Dropout                 & 0.2 \\
+Learning rate           & $2 \times 10^{-4}$ \\
+Batch size              & 4096 \\
+Training epochs         & 50 \\
+Early stopping patience & 5 \\
+Input window length     & 52 weeks \\
+Output horizon          & 16 weeks \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Best GP Configuration (Two-Stage Spatiotemporal Pipeline)}
+\label{app:gp_hpo}
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Hyperparameter} & \textbf{Value} \\
+\midrule
+Kernel                  & Matérn-3/2, ARD length-scales \\
+Inference               & Exact (Cholesky factorization) \\
+Mean function           & Zero \\
+GP features             & Hydrogeological zone \\
+GP pretraining          & 128 randomly sampled points (all dates, grouped per horizon) \\
+Kernel optimization     & 300 gradient-descent steps on marginal log-likelihood \\
+GP conditioning dates   & All test-period dates \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\clearpage
+\section{Best Jointly Trained Spatiotemporal Model Configuration}
+\label{app:joint_hpo}
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Hyperparameter} & \textbf{Value} \\
+\midrule
+GRU hidden / layers     & 256 / 4 \\
+GRU dropout             & 0.2 \\
+Learning rate           & $2 \times 10^{-4}$ \\
+Batch size              & per-date \\
+Early stopping patience & 15 \\
+GP loss weight $\lambda$  & $1 \times 10^{-4}$ \\
+GP conditioning dates   & all test-period dates \\
+\bottomrule
+\end{tabular}
+\end{table}

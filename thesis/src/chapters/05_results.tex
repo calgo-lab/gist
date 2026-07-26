@@ -1,0 +1,557 @@
+% !TEX root = ../main.tex
+% ============================================================
+%  Chapter 5 — Results
+%  Factual findings only; interpretation is in Chapter 6.
+% ============================================================
+
+\chapter{Results}
+\label{ch:results}
+
+% ============================================================
+\section{Experimental Setup}
+\label{sec:exp_setup}
+% ============================================================
+
+All experiments use the configuration described in \cref{ch:methods}: the random 90/10 spatial split with 40 independent seeds, the GRU (h256/l4/do0.2), and the GP with Matérn-3/2 kernel and hydrogeological zone as the sole static feature. The primary reported metric is median per-well RMSE at $h=16$; IQR-normalized nRMSE\textsubscript{pw} is the primary metric for the GP feature ablation.
+All experiments use HYRAS~5.0 reanalysis data for meteorological inputs, including the 16-week forecast horizon; reported error values therefore represent an upper bound on achievable performance under perfect meteorological information (see \cref{sec:limitations}).
+
+% ============================================================
+\section{GRU Temporal Performance}
+\label{sec:gru_performance}
+% ============================================================
+
+\subsection{GRU vs.\ TFT: Replication Result}
+\label{sec:gru_results}
+
+To establish a TFT baseline, the training procedure from code shared directly
+by the authors of \citet{kunz2025} is replicated on the Brandenburg dataset. This replication differs from
+the original code in two ways. First, the original Kunz et al.\ code applies \texttt{fit\_transform} on the
+validation set's static feature covariates; this replication corrects that by applying \texttt{transform},
+which uses the scaler parameters estimated on the training set rather than refitting on the validation population.
+Second, the original trains with distributed
+data parallelism across four GPUs, for an effective batch size of
+$4096 \times 4 = 16{,}384$; this replication uses a single GPU with batch size 4096.
+Validation-loss early stopping (patience\,=\,5) is also added, which is not used in
+the original.
+
+With these changes, the replicated TFT achieves an h\,=\,16 RMSE of 0.089\,m,
+compared to 0.093\,m from the original code the authors of \citet{kunz2025} shared
+for the Brandenburg dataset, a 4.3\% improvement.
+
+\Cref{tab:gru_vs_tft} compares both models on temporal forecasting at 1{,}040 monitored
+training wells during the test period, using the same evaluation approach the authors of
+\citet{kunz2025} apply to the Brandenburg dataset, with 10 seeds each. All values are
+the median per well and then the mean across seeds; NSE uses the per-well test-period
+mean as baseline (\cref{subsec:metrics}). The GRU reaches h\,=\,16 RMSE of 0.088\,m
+and h\,=\,16 NSE of 0.764, matching the replicated TFT to within 0.001\,m, less than half
+the GRU's seed-to-seed standard deviation (std\,$\approx$\,0.002\,m across 10 GRU seeds).
+KGE at h\,=\,16 is 0.803 for the GRU and 0.814 for the TFT (\cref{tab:gru_vs_tft}),
+which suggests the small RMSE gap does not reflect systematic bias or variability differences.
+The roughly
+90$\times$ training speedup (from about 31 hours to about 21 minutes on an A100 GPU on
+the BHT Kubernetes cluster) is what makes the full experimental scope of this thesis
+tractable: the HPO runs, feature ablations, multi-seed analysis, and joint training
+experiments would all have been too slow at TFT training cost.
+
+\begin{table}[htbp]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lcccccccccc}
+\toprule
+ & \multicolumn{2}{c}{\textbf{RMSE (m)}} & \multicolumn{2}{c}{\textbf{NSE}} & \multicolumn{2}{c}{\textbf{IQR-nRMSE}} & \multicolumn{2}{c}{\textbf{KGE}} & \multicolumn{2}{c}{\textbf{vs.\ Kunz TFT}} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}\cmidrule(lr){10-11}
+\textbf{Model} & \textbf{h=16} & \textbf{avg} & \textbf{h=16} & \textbf{avg} & \textbf{h=16} & \textbf{avg} & \textbf{h=16} & \textbf{avg} & \textbf{$\Delta$ RMSE} & \textbf{$\Delta$ NSE} \\
+\midrule
+TFT \citep{kunz2025}          & 0.093 & 0.068 & 0.740 & 0.844 & 0.378 & 0.284 & 0.814 & 0.881 & ---        & ---       \\
+TFT (replicated)              & 0.089 & 0.065 & 0.763 & 0.852 & 0.358 & 0.273 & 0.824 & 0.880 & $-4.3\%$   & $+3.1\%$  \\
+Global GRU (h256/l4/do0.2)    & 0.088 & 0.066 & 0.764 & 0.852 & 0.371 & 0.284 & 0.803 & 0.869 & $-5.4\%$   & $+3.2\%$  \\
+\bottomrule
+\end{tabular}}
+\caption{GRU vs.\ TFT: temporal performance (avg = mean over h=1-16; $\Delta$\,=\,\% change in h=16 metric relative to Kunz TFT)}
+\label{tab:gru_vs_tft}
+\end{table}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.85\textwidth]{gru_vs_tft}
+  \caption{Per-metric comparison of best GRU and best TFT across forecast horizons H1-H16.
+  Both models show near-identical NSE, RMSE, nRMSE, and MAE trajectories.}
+  \label{fig:gru_vs_tft}
+\end{figure}
+
+\Cref{fig:scatter_gru_tft} shows the corresponding per-well RMSE and NSE at the training wells.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.48\textwidth]{scatter_rmse_gru_tft}
+  \hfill
+  \includegraphics[width=0.48\textwidth]{scatter_nse_gru_tft}
+  \caption{Per-well RMSE (left) and NSE (right): GRU vs.\ TFT at training wells (10 seeds each)}
+  \label{fig:scatter_gru_tft}
+\end{figure}
+
+\subsection{GRU Feature Permutation Importance}
+\label{sec:gru_feature_importance}
+
+The Pardé seasonality coefficient dominates static feature importance ($+47.3\%$); temperature and precipitation dominate dynamic feature importance ($+91.5\%$ and $+84.5\%$ respectively). \Cref{tab:perm_importance,tab:perm_importance_dynamic} in \cref{app:additional_tables} report the full rankings.
+
+The dominant feature, the Pardé seasonality coefficient ($+47.3\%$), captures the seasonal precipitation-response pattern for each well's catchment, and its contribution exceeds that of the next four highest-ranked features combined.
+
+This dominance is specific to the h256/l4 architecture. An earlier analysis on a shallower h128/l5 model finds the Pardé seasonality coefficient to be harmful in that configuration, a discrepancy that likely reflects the h128/l5 model lacking sufficient capacity to condition correctly on seasonal response patterns across all 1{,}040 wells. The h256/l4 production runs retain the Pardé seasonality coefficient as an input; all 35 static features are included.
+
+High permutation importance does not imply that a feature is essential. A GRU trained from scratch without the Pardé seasonality coefficient achieves essentially the same RMSE as one trained with it across 40 split seeds, within one seed-to-seed standard deviation. Permutation importance reflects how easy a feature is to exploit given the current model state, not how large its contribution to the final prediction could be if it were absent from training (\cref{tab:perm_importance,tab:perm_importance_dynamic}).
+
+% ============================================================
+\section{GP Feature Ablation}
+\label{sec:gp_ablation}
+% ============================================================
+
+The GP feature ablation investigates the contribution of each static covariate to
+interpolation performance. The true-observation interpolation baseline is used throughout: a GP
+conditioned on true observed groundwater levels at training wells rather than GRU predictions.
+This keeps each feature's contribution free of any influence from GRU forecast errors, and the
+results transfer directly to the two-stage spatiotemporal pipeline since both use the same GP
+kernel and feature encoding. The coordinate-only baseline (no static features) serves as the
+reference point.
+
+\paragraph{Ablation protocol.}
+All 30 feature configurations are evaluated on the random 90/10 split using 10 split seeds
+and 1 GP seed per configuration (300 GP evaluations in total). The configurations include
+hydrogeological zone, aquifer confinement, groundwater residence time, well screen depths,
+autocorrelation class, precipitation-response features, and groundwater level class, tested individually and in
+combinations. All numbers reported here are means over 10 split seeds. Full results for all 30
+configurations are in \cref{app:interp_baseline_ablation}.
+
+The ablation uses IQR-normalized nRMSE\textsubscript{pw} as the primary metric. The 104
+test wells cover a wide range of seasonal amplitudes (from $<$0.5\,m to $>$10\,m);
+plain RMSE is dominated by high-amplitude wells, which carry more absolute error but respond
+differently to static features than low-amplitude wells. IQR normalization gives each
+well equal weight and produces a cleaner signal for feature selection.
+RMSE\textsubscript{pw} is reported alongside for comparison.
+
+\Cref{fig:gp_ablation_bar} summarises the relative performance of the core feature
+configurations; \cref{tab:gp_ablation} shows the corresponding numerical values.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.85\textwidth]{gp_ablation_bar}
+  \caption{GP feature ablation (IQR-nRMSE\textsubscript{pw}, lower is better; dashed line: coordinate-only baseline; star: selected configuration)}
+  \label{fig:gp_ablation_bar}
+\end{figure}
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Feature config} & \textbf{nRMSE} & \textbf{$\Delta$ nRMSE} & \textbf{RMSE (m)} \\
+\midrule
+\textbf{Hydrogeological zone only} $\star$    & \textbf{4.444} & $-$0.633 & \textbf{1.052} \\
+Screen top depth only                        & 4.883          & $-$0.194 & 1.070 \\
+Confinement only                             & 5.017          & $-$0.060 & 1.148 \\
+\textit{Coordinates only (baseline)}         & 5.077          & ---      & 1.130 \\
+Hydrogeological zone + confinement           & 5.207          & $+$0.130 & 1.153 \\
+Residence time only                          & 5.437          & $+$0.361 & 1.261 \\
+\bottomrule
+\end{tabular}
+\caption{GP feature ablation: selected configurations (median IQR-nRMSE\textsubscript{pw} and RMSE\textsubscript{pw}; lower is better; full table in \cref{app:interp_baseline_ablation})}
+\label{tab:gp_ablation}
+\end{table}
+
+\paragraph{Hydrogeological zone only is the selected configuration.}
+The hydrogeological zone feature (one-hot encoded from three classes:
+recharge, transit, and discharge zones) achieves the largest reduction in
+IQR-normalized nRMSE\textsubscript{pw}: $-$0.633 ($-$12.5\%) relative to the
+coordinate-only baseline. No other single feature comes close: the next-best configurations
+show gains of only $-$0.060 to $-$0.194 on IQR-nRMSE\textsubscript{pw}, all within one seed-to-seed standard deviation of the
+baseline, while the winning gap of $-$0.633 is more than three times the next-best gain. All precipitation-response features, residence time, and the autocorrelation class hurt
+performance. The selected configuration also achieves the best RMSE\textsubscript{pw} simultaneously, winning on both metrics.
+
+The nRMSE result is stronger than the corresponding RMSE comparison. The RMSE reduction is
+only $-$0.078\,m ($-$6.9\%), which is small relative to the seed-to-seed spread
+(std\,$\approx$\,0.16\,m across 10 seeds).
+The difference between metrics is also visible in the rankings: confinement only ranks third on
+nRMSE ($\Delta = -0.060$) yet slightly worsens RMSE relative to the coordinate-only baseline
+($+$0.018\,m). Adding confinement to hydrogeological zone together is worse than hydrogeological zone alone on both metrics,
+with nRMSE increasing by $+$0.130 relative to the baseline.
+
+\paragraph{Dynamic meteorological features.}
+Temperature, precipitation, and relative humidity are tested on top of the best
+static configuration (hydrogeological zone only) using the true-observation interpolation baseline on the random 90/10 split,
+10 split seeds and one GP seed per configuration (10 evaluations each). \Cref{tab:gp_ablation_dynamic}
+reports the results.
+All three dynamic features increase median nRMSE\textsubscript{pw} relative to the baseline
+(4.44): temperature by $+0.54$ ($+12\%$), relative humidity by $+0.98$ ($+22\%$), and
+precipitation by $+2.19$ ($+49\%$). Adding all three together does not improve over
+precipitation alone. The GP spatial kernel does not benefit from time-varying meteorological
+inputs, which is consistent with the kernel capturing spatial rather than temporal structure.
+Dynamic meteorological features are not added to the final GP configuration.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lrr}
+\toprule
+\textbf{Feature config}             & \textbf{nRMSE (mean $\pm$ std)} & \textbf{$\Delta$} \\
+\midrule
+\textit{Hydrogeological zone only (baseline)}  & $4.44 \pm 0.50$                 & ---       \\
+Hydrogeological zone + temperature            & $4.98 \pm 1.06$                 & $+$0.54   \\
+Hydrogeological zone + relative humidity      & $5.43 \pm 1.12$                 & $+$0.98   \\
+Hydrogeological zone + precipitation          & $6.64 \pm 1.29$                 & $+$2.19   \\
+Hydrogeological zone + all three met          & $6.63 \pm 1.26$                 & $+$2.19   \\
+\bottomrule
+\end{tabular}
+\caption{GP dynamic feature ablation (median IQR-nRMSE\textsubscript{pw} per well, mean over 10 split seeds; lower is better)}
+\label{tab:gp_ablation_dynamic}
+\end{table}
+
+\paragraph{Matérn-5/2 kernel.}
+The default kernel is Matérn-3/2. To check whether a smoother kernel would improve spatial interpolation, the true-observation interpolation baseline is re-run with Matérn-5/2 ($\nu=2.5$) on the random 90/10 split (10 split seeds, 1 GP seed, hydrogeological zone only). \Cref{tab:matern_kernel_comparison} shows the comparison: Matérn-5/2 gives RMSE\textsubscript{pw} of $1.235 \pm 0.163$\,m vs.\ $1.052 \pm 0.160$\,m for Matérn-3/2. The smoother kernel is worse by 0.18\,m on average (17.4\%), which confirms Matérn-3/2 as the better choice.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lc}
+\toprule
+\textbf{Kernel} & \textbf{RMSE\textsubscript{pw} (m)} \\
+\midrule
+Matérn-3/2 $\star$ & $1.052 \pm 0.160$ \\
+Matérn-5/2          & $1.235 \pm 0.163$ \\
+\bottomrule
+\end{tabular}
+\caption{Matérn 3/2 vs.\ 5/2 kernel comparison for GP}
+\label{tab:matern_kernel_comparison}
+\end{table}
+
+% ============================================================
+\section{Main Pipeline Results}
+\label{sec:main_pipeline_results}
+% ============================================================
+
+\subsection{Two-Stage Spatiotemporal Pipeline}
+\label{sec:twostage_performance}
+
+The two-stage spatiotemporal pipeline is evaluated on the primary random 90/10 split using
+40 split seeds (ss42--ss81), 1 GRU seed, 1 GP seed, the co-location-aware sampling algorithm, and
+hydrogeological zone only as the GP feature. The full metric comparison across all five model
+configurations is in \cref{tab:pipeline_main}; the discussion here focuses on the two-stage
+pipeline's key results.
+
+\subsection{Two-Stage Pipeline and Interpolation Baseline}
+\label{sec:bottleneck}
+
+At h\,=\,16, the two-stage pipeline RMSE of 1.082\,m (\cref{tab:pipeline_main}) is roughly 12$\times$ the GRU temporal RMSE of 0.088\,m (\cref{tab:gru_vs_tft}).
+
+The two-stage pipeline achieves a mean per-well RMSE of $1.119 \pm 0.208$\,m and an
+IQR-normalized nRMSE\textsubscript{pw} of $4.580 \pm 0.909$ (means $\pm$ std across 40
+seeds). The true-observation interpolation baseline achieves $1.116 \pm 0.208$\,m. The seed-to-seed standard deviation of the per-seed median gap is 0.033\,m; dividing by $\sqrt{40}$ (for 40 split seeds) gives a standard error of 0.005\,m. The observed mean gap of 0.003\,m (less than 0.3\%) is smaller than one standard error. A paired $t$-test across the 40 seeds gives $t_{39} = 0.68$, $p = 0.50$: if the true gap were zero, random sampling would produce a $t$-statistic at least this large 50\% of the time, so the two configurations are effectively equal on this metric. \Cref{fig:scatter_oracle_vs_decoupled} shows the per-well RMSE comparison. The GP's 95\% nominal prediction intervals achieve approximately 60\% empirical coverage (mean $0.602 \pm 0.043$ across 40 seeds; PICP) at the spatial test wells (\cref{sec:limitations}).
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.60\textwidth]{scatter_rmse_oracle_vs_decoupled}
+  \caption{Per-well RMSE: interpolation baseline vs.\ two-stage pipeline (random 90/10, 40 seeds; n\,=\,4{,}160 (well, seed) pairs)}
+  \label{fig:scatter_oracle_vs_decoupled}
+\end{figure}
+
+% ============================================================
+\section{Spatiotemporal Pipeline Comparison}
+\label{sec:pipeline_comparison}
+% ============================================================
+
+\Cref{tab:pipeline_main} compares four model configurations on the primary random 90/10 split
+(40 split seeds, co-location-aware sampling): one temporal baseline (Global GRU)
+and three spatiotemporal pipeline variants (1 GP seed, hydrogeological zone only).
+
+GRU metrics are evaluated at monitored training wells during the test period and are not
+directly comparable to the GP pipeline metrics at 104 unseen test wells.
+The Interp.\ Baseline uses true observed GWL as GP input and gives an upper bound on
+pipeline performance.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Configuration} & \textbf{h=16 RMSE (m)} & \textbf{avg RMSE (m)} & \textbf{h=16 NSE} & \textbf{avg NSE} \\
+\midrule
+Global GRU (h256/l4/do0.2) & $0.089 \pm 0.002$ & $0.069 \pm 0.002$ & $0.765 \pm 0.011$ & $0.849 \pm 0.008$ \\
+\midrule
+Two-Stage (GRU+GP)          & $1.082 \pm 0.193$ & $1.119 \pm 0.208$ & $-32.9 \pm 16.4$ & $-38.4 \pm 16.9$ \\
+Interp.\ Baseline           & $1.079 \pm 0.191$ & $1.116 \pm 0.208$ & $-33.1 \pm 16.9$ & $-38.6 \pm 17.1$ \\
+Jointly Trained             & $1.259 \pm 0.290$ & $1.286 \pm 0.278$ & $-46.1 \pm 30.8$ & $-52.1 \pm 32.8$ \\
+\bottomrule
+\end{tabular}
+\caption{Pipeline comparison, random 90/10 split (40 seeds). Per-well NSE is expected to be strongly negative for all spatial pipeline variants; see \cref{subsec:metrics} for the structural reason and \cref{subsec:global_metrics} for the contrast with global NSE.}
+\label{tab:pipeline_main}
+\end{table}
+
+\Cref{fig:scatter_rmse_rand} shows per-well RMSE comparing the global GRU temporal model against the two-stage pipeline.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.75\textwidth]{scatter_rmse_rand}
+  \caption{Per-well RMSE: GRU temporal (y-axis) vs.\ two-stage pipeline (x-axis), random split (40 seeds)}
+  \label{fig:scatter_rmse_rand}
+\end{figure}
+
+\Cref{fig:rmse_by_horizon} shows median per-well RMSE across forecast horizons H1--H16 for all three pipeline configurations. All three show broadly flat profiles.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.85\textwidth]{horizon_pipeline_comparison}
+  \caption{Median per-well RMSE by forecast horizon (random 90/10, 40 seeds; all three pipeline configurations)}
+  \label{fig:rmse_by_horizon}
+\end{figure}
+
+\subsection{Joint Training}
+\label{sec:joint_results}
+
+The jointly trained spatiotemporal model takes roughly twice as long to train as the two-stage pipeline and produces worse results on average: mean per-seed median h\,=\,16 RMSE is 1.259\,m vs.\ 1.082\,m for the two-stage pipeline (16.4\% higher).
+
+\Cref{fig:perwell_rmse_scatter} shows per-well RMSE for all 4{,}160 (well, seed) pairs across the 40 seeds, clipped at 5\,m. The two-stage pipeline is better for 2{,}199 of 4{,}160 pairs.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.75\textwidth]{perwell_rmse_scatter}
+  \caption{Per-well RMSE: two-stage vs jointly trained (random 90/10, 40 seeds; n\,=\,4{,}160 (well, seed) pairs; axis clipped at 5\,m; two-stage better for 2{,}199/4{,}160 pairs)}
+  \label{fig:perwell_rmse_scatter}
+\end{figure}
+
+But the per-well breakdown tells a different story: the jointly trained model is worse for close wells and better for the most isolated ones (see \cref{sec:distance_error}).
+
+
+% ============================================================
+\section{Distance-Error Relationship}
+\label{sec:distance_error}
+% ============================================================
+
+Distance between a test well and its nearest training neighbor is the primary driver of
+interpolation difficulty. This holds both across seeds and within seeds.
+
+\subsection{Across Seeds: Spearman Correlation}
+
+The random split exhibits substantial standard deviation across 40 seeds. The full per-seed
+breakdown of median nearest-training-well distance and RMSE\textsubscript{pw} is in
+\cref{tab:seed_distance} (Appendix~B). Seeds that draw more spatially isolated test wells
+show higher RMSE: the Spearman correlation between median nearest-training-well distance and
+per-seed median RMSE is $\rho = 0.603$ ($p < 0.001$, $n = 40$, $t = 4.66$, $df = 38$).
+\Cref{fig:distance_rmse} shows this relationship: each point is one of the 40 seeds,
+with its median nearest-training-well distance on the $x$-axis and its median two-stage
+pipeline RMSE on the $y$-axis.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.85\textwidth]{seed_distance_scatter}
+  \caption{Median RMSE vs.\ median nearest-training-well distance across 40 seeds (random 90/10 split; Spearman $\rho = 0.603$, $p < 0.001$)}
+  \label{fig:distance_rmse}
+\end{figure}
+
+\subsection{Distance-Binned RMSE}
+
+\Cref{fig:ntn_km_rmse} shows median per-well RMSE in 1\,km distance bins for both pipeline variants, pooled across 40 seeds. Below 2.5\,km, the two-stage pipeline performs better. From roughly 4.5\,km onward
+the ranking reverses: by the farthest distance bin (median distance 6.8\,km) the two-stage
+pipeline reaches 5.4\,m against 4.3\,m for the jointly trained model. \Cref{fig:scatter_joint_close,fig:scatter_joint_far} confirm this at the extremes:
+for the closest 10\% of test wells ($\leq 0.61$\,km, $n = 422$), the two-stage pipeline is
+better on 282 of 422 pairs (median RMSE 0.675\,m vs.\ 1.098\,m for the jointly trained
+model); for the farthest 10\% ($\geq 5.45$\,km, $n = 413$), the jointly trained model is
+better on 282 of 413 pairs (median RMSE 4.261\,m vs.\ 5.369\,m for the two-stage pipeline).
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.85\textwidth]{ntn_km_rmse}
+  \caption{Median per-well RMSE vs.\ nearest-training-well distance (km) for both pipeline variants (random 90/10, 40 seeds)}
+  \label{fig:ntn_km_rmse}
+\end{figure}
+
+\begin{figure}[!htbp]
+  \centering
+  \subcaptionbox{Closest 10\% ($\leq 0.61$\,km)\label{fig:scatter_joint_close}}{%
+    \includegraphics[width=0.47\textwidth]{scatter_main_close}}\hfill
+  \subcaptionbox{Farthest 10\% ($\geq 5.45$\,km)\label{fig:scatter_joint_far}}{%
+    \includegraphics[width=0.47\textwidth]{scatter_main_far}}
+  \caption{Per-well RMSE: jointly trained vs.\ two-stage pipeline at the extremes of nearest-training-well distance (random 90/10, 40 seeds)}
+\end{figure}
+
+% ============================================================
+\section{Alternative Split Strategies}
+\label{sec:split_sensitivity}
+% ============================================================
+
+The primary evaluation uses the random 90/10 split repeated over 40 seeds. The three alternative
+test set configurations described in \cref{sec:alt_splits} are evaluated on the same two-stage spatiotemporal pipeline
+to assess whether the choice of split design changes the substantive conclusions.
+All three use a 90/10 fraction and are run over 10 seeds.
+
+\begin{table}[htbp]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Split strategy} & \textbf{Test wells} & \textbf{avg RMSE (m)} & \textbf{h=16 RMSE (m)} & \textbf{avg IQR-nRMSE} \\
+\midrule
+random 90/10 (primary, 40 seeds) & 104 & $1.119 \pm 0.208$ & $1.082 \pm 0.193$ & $4.580 \pm 0.909$ \\
+Dense-area                       & 104 & $0.678 \pm 0.089$ & $0.681 \pm 0.109$ & $2.900 \pm 0.379$ \\
+Sparse-area                      & 104 & $5.102 \pm 0.690$ & $5.409 \pm 0.803$ & $22.269 \pm 3.671$ \\
+Cluster-stratified               &  98 & $1.215 \pm 0.202$ & $1.164 \pm 0.220$ & $5.123 \pm 0.973$ \\
+Random 80/20                     & 208 & $1.240 \pm 0.154$ & $1.200 \pm 0.142$ & $5.084 \pm 0.586$ \\
+\bottomrule
+\end{tabular}}
+\caption{Two-stage pipeline under alternative split strategies (alternatives: 10 seeds each; primary: 40 seeds; lower is better)}
+\label{tab:split_sensitivity}
+\end{table}
+
+The Dense-area split achieves substantially lower RMSE than the random split at the same test
+fraction (0.678\,m vs.\ 1.119\,m). By restricting the eligible test pool to wells in
+the denser half of the monitoring network, the split makes it more likely that test wells have
+close training neighbors. The spatial interpolation task is therefore easier by construction.
+
+The Sparse-area split restricts the eligible test pool to the 20\% of wells with the largest
+nearest-training-well distances, which are the most spatially isolated wells in the Brandenburg
+monitoring network. The two-stage pipeline achieves avg RMSE of $5.102 \pm 0.690$\,m on this
+split, roughly $4.6\times$ higher than on the random 90/10 ($1.119$\,m). The jointly trained
+pipeline achieves $3.527 \pm 0.406$\,m avg RMSE on the same split, 30.9\% lower. The
+ordering from the primary evaluation is reversed, consistent with the distance-binned result in
+\cref{sec:joint_results}.
+
+The Cluster-stratified split achieves avg RMSE of $1.215 \pm 0.202$\,m on approximately
+98 test wells, 8.6\% higher than the primary random 90/10 split (1.119\,m).
+
+A random 80/20 split (208 test wells, 10 seeds) achieves avg RMSE of $1.240 \pm 0.154$\,m, compared to $1.119 \pm 0.208$\,m for the primary 90/10 split. The larger test fraction places more test wells in sparser parts of the monitoring network, raising error slightly. Full results for all split configurations are in \cref{tab:split_comparison}.
+
+\Cref{fig:split_joint_comparison} shows h=16 RMSE for the two-stage and jointly trained pipelines across all four split designs. For the random 90/10 split, the same 10 seeds (ss42--ss51) are used here as for the three alternative splits, rather than the full 40-seed production run, to keep the seed variance comparable across configurations.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.75\textwidth]{split_strategy_joint_comparison}
+  \caption{h=16 RMSE for the two-stage and jointly trained pipelines across four split designs (10 seeds each;
+  error bars show $\pm 1$ standard deviation). The jointly trained spatiotemporal model wins only on the Sparse-area split,
+  which selects the most spatially isolated test wells.}
+  \label{fig:split_joint_comparison}
+\end{figure}
+
+% ============================================================
+\section{Interpolation Error by Hydrogeological Attributes}
+\label{sec:hydrogeo_breakdown}
+% ============================================================
+
+This section breaks down interpolation error by three static hydrogeological attributes:
+hydrogeological zone, aquifer confinement, and groundwater residence time. All analyses use
+the 1{,}040 (well, seed) pairs from the 10-seed random 90/10 split evaluation. A well
+appearing in multiple seeds' test sets contributes one pair per seed, because each draw produces a different training set, a different trained model, and therefore different predictions.
+
+\subsection{Hydrogeological Zone}
+\label{sec:hydroraum_by_zone}
+
+Brandenburg's monitoring network is partitioned into three zone types: discharge zones
+(56\% of pairs), transit zones (36\%), and recharge zones (8\%).
+\Cref{tab:hydroraum_breakdown} reports the median RMSE\textsubscript{pw} and the median
+nearest-training-well distance for each zone.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Zone} & \textbf{Pairs} & \textbf{Median RMSE (m)} & \textbf{Nearest-training-well dist.\ (km)} \\
+\midrule
+Discharge zones & 583 & 0.636 & 1.609 \\
+Transit zones   & 374 & 2.248 & 2.679 \\
+Recharge zones  &  83 & 7.972 & 3.387 \\
+\bottomrule
+\end{tabular}
+\caption{Interpolation RMSE by hydrogeological zone}
+\label{tab:hydroraum_breakdown}
+\end{table}
+
+Discharge zones achieve the lowest median RMSE (0.636\,m) and the shortest median
+nearest-training-well distance (1.609\,km). To separate the zone effect from data density,
+\cref{tab:hydroraum_dist_matched} subsamples each group by trimming pairs with short nearest-training-well
+distances from the bottom of each distribution until the median nearest-training-well distance is nearly equal across zones.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Zone} & \textbf{Pairs} & \textbf{Median RMSE (m)} & \textbf{Nearest-training-well dist.\ (km)} \\
+\midrule
+Discharge zones & 180 & 1.115 & 3.389 \\
+Transit zones   & 270 & 2.320 & 3.410 \\
+Recharge zones  &  83 & 7.972 & 3.387 \\
+\bottomrule
+\end{tabular}
+\caption{Distance-matched RMSE by hydrogeological zone}
+\label{tab:hydroraum_dist_matched}
+\end{table}
+
+At matched median nearest-training-well distances, recharge zones are roughly 7$\times$ harder to interpolate
+than discharge zones (7.972\,m vs.\ 1.115\,m median RMSE\textsubscript{pw}). Hydrogeological zone thus affects interpolation difficulty beyond what spatial isolation explains.
+
+\subsection{Aquifer Confinement}
+\label{sec:confinement_breakdown}
+
+\Cref{tab:confinement_breakdown} splits pairs by aquifer confinement type.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Confinement} & \textbf{Pairs} & \textbf{Median RMSE (m)} & \textbf{Nearest-training-well dist.\ (km)} \\
+\midrule
+Unconfined & 769 & 1.056 & 2.106 \\
+Confined   & 271 & 1.005 & 2.113 \\
+\bottomrule
+\end{tabular}
+\caption{Interpolation RMSE by confinement type}
+\label{tab:confinement_breakdown}
+\end{table}
+
+Median RMSE is nearly identical for unconfined (1.056\,m) and confined (1.005\,m) aquifers
+at essentially the same median nearest-training-well distance (2.106\,km vs.\ 2.113\,km). Aquifer
+confinement is not a meaningful predictor of interpolation difficulty.
+
+\subsection{Groundwater Residence Time}
+\label{sec:residence_time_breakdown}
+
+\Cref{tab:residence_time_breakdown} bins the continuous residence time variable into four
+intervals. Of the 1{,}040 pairs, 43 have missing residence time values and are excluded.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Residence time} & \textbf{Pairs} & \textbf{Median RMSE (m)} & \textbf{Nearest-training-well dist.\ (km)} \\
+\midrule
+0--5\,yr   & 299 & 0.759 & 1.946 \\
+5--15\,yr  & 417 & 1.057 & 2.171 \\
+15--30\,yr & 246 & 1.096 & 2.121 \\
+30--50\,yr &  51 & 2.129 & 1.741 \\
+\bottomrule
+\end{tabular}
+\caption{Interpolation RMSE by residence time}
+\label{tab:residence_time_breakdown}
+\end{table}
+
+Median RMSE increases monotonically with residence time, from 0.759\,m (0--5\,years) to
+2.129\,m (30--50\,years). Notably, the 30--50-year bin has the shortest median nearest-training-well distance
+(1.741\,km) yet the highest median RMSE. \Cref{tab:residence_time_dist_matched}
+subsamples each group to a common median nearest-training-well distance of 2.10\,km (the overall median across
+all pairs) to control for this.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Residence time} & \textbf{Pairs} & \textbf{Median RMSE (m)} & \textbf{Nearest-training-well dist.\ (km)} \\
+\midrule
+0--5\,yr   & 283 & 0.766 & 2.104 \\
+5--15\,yr  & 401 & 0.970 & 2.101 \\
+15--30\,yr & 246 & 1.096 & 2.121 \\
+30--50\,yr &  41 & 3.425 & 2.113 \\
+\bottomrule
+\end{tabular}
+\caption{Distance-matched RMSE by residence time}
+\label{tab:residence_time_dist_matched}
+\end{table}
+
+After distance matching the gradient strengthens: the 30--50-year bin reaches 3.425\,m,
+versus 0.766\,m for the 0--5-year bin (4.5$\times$ higher). The residence-time effect is therefore not explained by data density.
+
+% ============================================================
+\section{Chapter Summary}
+% ============================================================
+
+The results point consistently in one direction: temporal forecast quality is not what limits the spatiotemporal pipeline. Spatial generalization is, and it degrades with distance from the training set. Hydrogeological zone is the only static feature that reliably helps the GP. Joint training does not solve the spatial problem on average but gains an advantage at the extreme tail of spatial isolation. What these findings mean for the forecast-anywhere goal, which approaches failed and why, and where the main gaps are, is the subject of \cref{ch:discussion}.

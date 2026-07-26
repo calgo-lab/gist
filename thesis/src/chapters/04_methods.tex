@@ -1,0 +1,819 @@
+% !TEX root = ../main.tex
+% ============================================================
+%  Chapter 4 — Methods
+%  Merges: Technical Background (ex 02_background) +
+%          System Design (ex 05_design) +
+%          Implementation (ex 06_implementation)
+% ============================================================
+
+\chapter{Methods}
+\label{ch:methods}
+
+This chapter presents the full methodological framework in three parts.
+\Cref{sec:background} provides the technical background on Gated Recurrent Units, Gaussian
+Process regression, and the evaluation metrics used throughout.
+\Cref{sec:system_design} describes the design of the temporal and spatial models, the pipeline variants, and the spatial split.
+\Cref{sec:implementation} documents the software setup and compute infrastructure.
+
+% ============================================================
+\section{Technical Background}
+\label{sec:background}
+% ============================================================
+
+% ------------------------------------------------------------
+\subsection{Recurrent Neural Networks and the Gated Recurrent Unit}
+\label{subsec:rnn_gru}
+% ------------------------------------------------------------
+
+\subsubsection{Sequence-to-Sequence Forecasting}
+
+A sequence-to-sequence (seq2seq) model maps an input sequence of length $L$ to an output
+sequence of length $H$. Given a window of $L$ historical observations and input features
+$\mathbf{X} = (\mathbf{x}_1, \ldots, \mathbf{x}_L)$, the model predicts the next $H$ values
+$\hat{\mathbf{y}} = (\hat{y}_{t+1}, \ldots, \hat{y}_{t+H})$. This study uses $L = 52$ weeks (one year of look-back) and $H = 16$ weeks (approximately four months of forecast horizon).
+
+\subsubsection{Gated Recurrent Unit}
+
+The Gated Recurrent Unit \citep{cho2014learning} is a recurrent neural network architecture
+that addresses the vanishing gradient problem of standard RNNs through learnable gating
+mechanisms. Given input $\mathbf{x}_t$ and previous hidden state $\mathbf{h}_{t-1}$, the GRU
+computes:
+
+\begin{align}
+  \mathbf{z}_t &= \sigma\!\left(\mathbf{W}_z \mathbf{x}_t + \mathbf{U}_z \mathbf{h}_{t-1} + \mathbf{b}_z\right) \label{eq:gru_update}\\
+  \mathbf{r}_t &= \sigma\!\left(\mathbf{W}_r \mathbf{x}_t + \mathbf{U}_r \mathbf{h}_{t-1} + \mathbf{b}_r\right) \label{eq:gru_reset}\\
+  \tilde{\mathbf{h}}_t &= \tanh\!\left(\mathbf{W}_h \mathbf{x}_t + \mathbf{U}_h (\mathbf{r}_t \odot \mathbf{h}_{t-1}) + \mathbf{b}_h\right) \label{eq:gru_candidate}\\
+  \mathbf{h}_t &= (1 - \mathbf{z}_t) \odot \mathbf{h}_{t-1} + \mathbf{z}_t \odot \tilde{\mathbf{h}}_t \label{eq:gru_hidden}
+\end{align}
+
+where $\sigma$ is the sigmoid function, $\odot$ stands for element-wise multiplication,
+$\mathbf{z}_t$ is the update gate, $\mathbf{r}_t$ is the reset gate, $\tilde{\mathbf{h}}_t$
+is the candidate new hidden state, $\mathbf{W}_z, \mathbf{W}_r, \mathbf{W}_h$ are learned input
+weight matrices, $\mathbf{U}_z, \mathbf{U}_r, \mathbf{U}_h$ are learned hidden weight
+matrices, and $\mathbf{b}_z, \mathbf{b}_r, \mathbf{b}_h$ are bias vectors. The update gate
+controls how much of the previous hidden state is retained; the reset gate controls how much
+of the past is forgotten when computing the candidate hidden state.
+
+\subsubsection{Static Feature Integration}
+
+Well-specific static features (hydrogeological covariates that are constant over time) are
+integrated here by projecting them into the initial hidden state $\mathbf{h}_0$ via a learned
+linear layer:
+
+\begin{equation}
+  \mathbf{h}_0^{(\ell)} = \mathbf{W}_s^{(\ell)} \mathbf{s} + \mathbf{b}_s^{(\ell)}, \quad \ell = 1, \ldots, L_\text{layers}
+  \label{eq:static_init}
+\end{equation}
+
+where $\mathbf{s} \in \mathbb{R}^{d_s}$ is the static feature vector of dimension $d_s$,
+$\mathbf{W}_s^{(\ell)}$ and $\mathbf{b}_s^{(\ell)}$ are the learned weight matrix and bias
+for layer $\ell$, and $L_\text{layers}$ is the total number of GRU layers. This allows the
+same model weights to be shared across all wells while the well-specific context is
+encoded in the initial hidden state.
+
+\subsubsection{Comparison to the Temporal Fusion Transformer}
+
+The Temporal Fusion Transformer (TFT) \citep{lim2021temporal} is an attention-based seq2seq
+architecture designed for multi-horizon forecasting with heterogeneous inputs. It incorporates
+variable selection networks, gating mechanisms, and multi-head attention over the entire input
+sequence. While TFT achieves strong performance on such tasks, it carries significantly more
+parameters and longer training times than a GRU. The GRU is therefore selected as the
+temporal model; a replication of the \citet{kunz2025} TFT baseline and a direct
+performance comparison are presented in \cref{sec:gru_results}.
+The GRU in this thesis is trained with MSE loss, which is standard for GRU regression models. RMSE is used as the evaluation metric for both models, so their values are directly comparable regardless of training loss.
+
+% ------------------------------------------------------------
+\subsection{Gaussian Process Regression}
+\label{subsec:gp_background}
+% ------------------------------------------------------------
+
+\subsubsection{Definition}
+
+A Gaussian Process is a distribution over functions $f: \mathcal{X}
+\to \mathbb{R}$ such that any finite collection of function values is jointly Gaussian \citep{rasmussen2006gaussian}:
+
+\begin{equation}
+  f(\mathbf{x}_1), \ldots, f(\mathbf{x}_n) \sim \mathcal{N}\!\left(\boldsymbol{\mu}, \mathbf{K}\right)
+\end{equation}
+
+where $\mathbf{x}_i \in \mathcal{X}$ is the input point of the $i$-th well, $\boldsymbol{\mu}$ is the mean vector with $\mu_i = m(\mathbf{x}_i)$, and $\mathbf{K}$ is
+the covariance matrix with $K_{ij} = k(\mathbf{x}_i, \mathbf{x}_j)$. The mean function $m(\cdot)$ and kernel $k(\cdot, \cdot)$ define what the GP assumes about
+the function before seeing any data.
+
+\subsubsection{Posterior Prediction}
+
+Given training observations $\mathbf{y} = f(\mathbf{X}) + \boldsymbol{\varepsilon}$ with
+$\boldsymbol{\varepsilon} \sim \mathcal{N}(\mathbf{0}, \sigma_n^2 \mathbf{I})$, the GP
+posterior at test points $\mathbf{X}_*$ is:
+
+\begin{align}
+  \mathbf{f}_* \mid \mathbf{X}, \mathbf{y}, \mathbf{X}_* &\sim \mathcal{N}\!\left(\boldsymbol{\mu}_*, \boldsymbol{\Sigma}_*\right)\\
+  \boldsymbol{\mu}_* &= m(\mathbf{X}_*) + \mathbf{K}_{*}\left(\mathbf{K} + \sigma_n^2 \mathbf{I}\right)^{-1}(\mathbf{y} - m(\mathbf{X}))\\
+  \boldsymbol{\Sigma}_* &= \mathbf{K}_{**} - \mathbf{K}_{*}\left(\mathbf{K} + \sigma_n^2 \mathbf{I}\right)^{-1}\mathbf{K}_{*}^\top
+\end{align}
+
+where $\mathbf{K} = k(\mathbf{X}, \mathbf{X})$ is the training kernel matrix,
+$\mathbf{K}_{*} = k(\mathbf{X}_*, \mathbf{X})$ is the cross-covariance between test and
+training points, and $\mathbf{K}_{**} = k(\mathbf{X}_*, \mathbf{X}_*)$ is the test kernel
+matrix, and $\sigma_n^2$ is the observation noise variance. The posterior mean $\boldsymbol{\mu}_*$ provides point predictions, while the
+diagonal of $\boldsymbol{\Sigma}_*$ provides predictive variances.
+
+\subsubsection{The Matérn-3/2 Kernel}
+
+Matérn kernels control the smoothness of the modelled function. The Matérn-3/2 kernel is:
+
+\begin{equation}
+  k_{\text{M32}}(r) = \sigma^2 \left(1 + \frac{\sqrt{3}\,r}{\ell}\right) \exp\!\left(-\frac{\sqrt{3}\,r}{\ell}\right)
+  \label{eq:matern32}
+\end{equation}
+
+where $r = \|\mathbf{x} - \mathbf{x}'\|$ is the Euclidean distance between two wells, $\ell$ is the length-scale (controlling how quickly spatial similarity decays with distance), and $\sigma^2$ is the output-scale (the overall variance of the GP). Matérn-3/2 assumes once-differentiable sample paths, meaning each function the GP contains has exactly one continuous derivative, which is a standard prior for spatially smooth but not infinitely smooth physical fields such as GWL.
+
+\subsubsection{Kernel Hyperparameter Optimisation}
+
+The kernel hyperparameters, length-scales $\boldsymbol{\ell}$, output scale $\sigma^2$, and noise variance $\sigma_n^2$, are not set by hand but learned from data by maximising the marginal log-likelihood (MLL). The MLL is the log probability of the observed targets $\mathbf{y}$ under the GP model, integrated over all possible latent function values. It balances data fit against model complexity, and its gradient with respect to the hyperparameters is available in closed form \citep{rasmussen2006gaussian}, which allows gradient-based optimisation.
+
+\subsubsection{Exact Inference with GPyTorch}
+
+Exact GP inference requires inverting the $n \times n$ kernel matrix, where $n$ is the
+number of training points, which has $\mathcal{O}(n^3)$ time complexity and $\mathcal{O}(n^2)$ memory
+complexity \citep{rasmussen2006gaussian}. Since there are at most 936 training wells per date in our setup, exact inference is computationally feasible. This thesis uses the GPyTorch library \citep{gardner2018gpytorch}
+for its kernel and likelihood implementations, but solves the GP equations exactly using
+Cholesky decomposition instead of GPyTorch's built-in approximate solvers, because $n \leq 936$ makes exact inference feasible and Cholesky gives the exact solution with no approximation error. Rather than computing $(\mathbf{K} + \sigma_n^2 \mathbf{I})^{-1}$ directly, Cholesky factorises $\mathbf{K} + \sigma_n^2 \mathbf{I} = \mathbf{L}\mathbf{L}^\top$, where $\mathbf{L}$ is a lower-triangular matrix. The posterior mean and variance then follow from two triangular solves rather than an explicit inversion, which is faster and numerically more stable. At $n \approx 936$, the Cholesky factorization involves roughly $10^8$ floating-point operations per fit, which completes in milliseconds on the GPU hardware used (see \cref{sec:compute}).
+
+% ------------------------------------------------------------
+\subsection{Evaluation Metrics}
+\label{subsec:metrics}
+% ------------------------------------------------------------
+
+Results are reported primarily at forecast horizon $h = 16$ (16 weeks ahead), which is the most demanding horizon and therefore the most informative single value to report. The choice also allows comparability with unpublished experiments on the Brandenburg dataset shared by \citeauthor{kunz2025}; their published paper uses $h = 12$, but on a different dataset, so those published values are not directly comparable regardless. The mean of each metric over all 16 horizons is additionally reported. Each per-well value at a given horizon is averaged over all evaluation time steps $T_i$; distribution statistics are then computed across test wells.
+
+\subsubsection{Root Mean Squared Error}
+
+The per-well RMSE at forecast horizon $h$ is:
+
+\begin{equation}
+  \text{RMSE}_i^h = \sqrt{\frac{1}{|T_i|} \sum_{t} \left(\hat{y}_{i,t+h} - y_{i,t+h}\right)^2}
+  \label{eq:rmse}
+\end{equation}
+
+where $i$ indexes the test well, $t$ indexes the evaluation time steps in $T_i$, $\hat{y}_{i,t+h}$ is the model prediction, and $y_{i,t+h}$ is the observed GWL value. The primary metric is $\text{RMSE}_i^{16}$; the mean $\overline{\text{RMSE}}_i = \frac{1}{H}\sum_{h=1}^{H} \text{RMSE}_i^h$ is additionally reported.
+
+The following distributional summaries are reported to characterize both central tendency and
+tail behavior: the mean $\pm$ standard deviation across test wells, and the percentiles
+P10, P25, median (P50), P75, and P90 of the per-well RMSE distribution (\cref{tab:cross_split_full_metrics}). P10 marks the best-performing 10\% of wells; P90 is the threshold above which only the worst-performing 10\% fall; P25--P75 (interquartile range) shows how concentrated results are around the median.
+
+\subsubsection{Normalized RMSE per Well (nRMSE\textsubscript{pw})}
+
+Because GWL ranges vary across wells, raw RMSE is larger for wells with bigger amplitudes even at equal model accuracy; normalizing by a well-specific scale removes this and gives each well equal weight:
+
+\begin{equation}
+  \text{nRMSE}^\text{IQR}_{\text{pw},i} = \frac{\text{RMSE}_i}{\text{IQR}(y_{i,\cdot})}
+  \label{eq:nrmse_iqr}
+\end{equation}
+
+where $\text{IQR}(y_{i,\cdot}) = Q_{75}(y_{i,\cdot}) - Q_{25}(y_{i,\cdot})$ is the interquartile range of observed GWL values at well $i$. The result is aggregated as the median across test wells. Range normalization, $\text{RMSE}_i / \text{range}(y_{i,\cdot})$ where $\text{range}(y_{i,\cdot}) = \max(y_{i,\cdot}) - \min(y_{i,\cdot})$, is a natural alternative, but across the wells in this study the range is about $3$--$4\times$ larger than the IQR and more sensitive to extreme observations. IQR normalization is therefore more robust and is the single reported normalized metric. It is used for pipeline comparison and for the GP feature ablation (\cref{sec:gp_ablation}).
+
+\subsubsection{Nash--Sutcliffe Efficiency}
+
+The Nash--Sutcliffe Efficiency (NSE) \citep{nash1970river} measures the fraction of variance
+explained relative to a climatological mean baseline:
+
+\begin{equation}
+  \text{NSE}_i^h = 1 - \frac{\sum_t (\hat{y}_{i,t+h} - y_{i,t+h})^2}{\sum_t (\bar{y}_i - y_{i,t+h})^2}
+  \label{eq:nse}
+\end{equation}
+
+where $i$, $t$, $h$, $\hat{y}_{i,t+h}$, $y_{i,t+h}$ are as in \cref{eq:rmse}, and $\bar{y}_i$ is the per-well mean GWL baseline. Two choices exist
+for $\bar{y}$: the test-period mean or the training-period mean.
+This study uses the test-period mean as the primary choice, consistent with the original
+formulation of \citet{nash1970river}, who define $\bar{y}$ as the mean of observed values
+over the evaluation period, the standard in hydrology.
+The primary metric is $\text{NSE}_i^{16}$; the mean $\overline{\text{NSE}}_i = \frac{1}{H}\sum_{h=1}^{H} \text{NSE}_i^h$ is additionally reported. NSE $\in (-\infty, 1]$: a value of 1 indicates perfect prediction, 0 indicates no better than the mean, and negative values indicate worse-than-mean performance.
+
+NSE is reported for all models. For the temporal models it is a standard performance measure; for the spatiotemporal pipeline, the structural disadvantage means values will be strongly negative and should be interpreted accordingly. For spatial test wells, NSE has a structural disadvantage compared to the temporal models: its baseline uses the per-well mean $\bar{y}$, which is
+derived from observations at that specific well, which is information the GP never has access to
+during training. Both the temporal models and the GP use the per-well test-period mean as the NSE baseline, which neither model has seen during training. The disadvantage is larger for spatial interpolation, though: the GP has to estimate GWL levels per timestep at unobserved wells across a range of roughly 130\,m, while each temporal model works within a single well whose amplitude over the entire time span is on average around 1.5\,m and has a maximum value of 16\,m. Missing the absolute level by even a small fraction of the range produces a much larger NSE penalty than a comparable relative miss within a single well.
+As a result, spatiotemporal pipeline NSE values are strongly negative, regardless of pipeline variant (mean $\approx -38.4$ for the primary 90/10 evaluation) and are reported in the results.
+
+\subsubsection{Kling-Gupta Efficiency}
+\label{subsec:kge}
+
+The Kling-Gupta Efficiency \citep{gupta2009decomposition} separates prediction error into
+three components (correlation, variability, and bias), which gives a more complete picture
+than NSE alone:
+
+\begin{equation}
+  \text{KGE} = 1 - \sqrt{(r-1)^2 + (\alpha-1)^2 + (\beta-1)^2}
+  \label{eq:kge}
+\end{equation}
+
+where $r$ is the Pearson correlation coefficient between predicted and observed values,
+$\alpha = \sigma_s / \sigma_o$ is the ratio of simulated to observed standard deviation
+(variability ratio), and $\beta = \mu_s / \mu_o$ is the ratio of simulated to observed mean
+(bias ratio). A perfect model achieves KGE $= 1$; values closer to 1 are better. Unlike NSE, always predicting the observed mean does not correspond to KGE $= 0$:
+it typically gives KGE $\approx -0.41$ \citep{knoben2019intercomparison}, so KGE $= 0$ already represents a model that
+outperforms that baseline. Unlike NSE, which is based on squared residuals alone, KGE explicitly accounts for correlation, variability, and bias in how it penalizes prediction errors.
+Per-well KGE is computed using the same predicted and observed values as RMSE and NSE.
+
+\subsubsection{Global (Pooled) Metrics}
+\label{subsec:global_metrics}
+
+Per-well summary statistics treat each well as an independent observation and are robust to
+outliers. Complementarily, global metrics pool all errors across all test wells
+$i \in \mathcal{W}_\text{test}$, all evaluation time steps $t$, and all horizons $h$:
+
+\begin{align}
+  \text{RMSE}_\text{global} &= \sqrt{\frac{1}{|\mathcal{W}_\text{test}| \cdot |T| \cdot H}
+    \sum_{i,t,h} \left(\hat{y}_{i,t+h} - y_{i,t+h}\right)^2}
+  \label{eq:global_rmse}\\
+  \text{NSE}_\text{global} &= 1 - \frac{\sum_{i,t,h} (\hat{y}_{i,t+h} - y_{i,t+h})^2}
+    {\sum_{i,t,h} (\bar{y} - y_{i,t+h})^2}
+  \label{eq:global_nse}
+\end{align}
+
+where $\mathcal{W}_\text{test}$ is the set of test wells, $|T|$ is the number of evaluation
+time steps, $H = 16$ is the forecast horizon length, $\bar{y}$ is the global mean over all
+pooled observations, and $i$, $t$, $h$, $\hat{y}_{i,t+h}$, $y_{i,t+h}$ are as defined in
+\cref{eq:rmse}. Global RMSE gives more weight to the worst-performing wells (squaring errors amplifies large deviations, so a few badly-predicted wells raise it noticeably), so it picks up issues the per-well median can miss. Global NSE uses the grand mean across all pooled observations as its baseline, so a model that predicts the grand mean everywhere scores 0. A model only needs to place each well's mean on the correct side of the grand mean to beat this baseline; with a range of roughly 130\,m across Brandenburg wells, that is not a hard task. The GP does exactly this, since spatial interpolation of between-well level differences is its core task. Per-well NSE uses each well's own test-period mean as the baseline. The temporal range within a single well averages roughly 1.5\,m, so the per-well mean is at most about 0.75\,m from any observation in an average well. To score above zero on per-well NSE, the GP would have to predict each well's absolute GWL to within that margin, on a scale that spans 130\,m across the study area, which is not achievable for a model that has never observed that well. The result is global NSE around $+0.92$ and per-well NSE around $-33$ for the spatiotemporal pipeline, and both are reported in the results.
+
+\subsubsection{Prediction Interval Coverage Probability}
+
+The GP spatial interpolation stage outputs a predicted GWL $\hat{y}_t$ and a posterior standard deviation $\hat{\sigma}_t$ at each test well. A $(1-\alpha)$ prediction interval is $[\hat{y}_t - z_{\alpha/2}\hat{\sigma}_t,\; \hat{y}_t + z_{\alpha/2}\hat{\sigma}_t]$, where $\alpha$ is the tail probability and $z_{\alpha/2}$ is the standard normal quantile; for a 90\% interval, $\alpha = 0.10$ and $z_{0.05} \approx 1.645$. PICP measures the fraction of true observations that fall inside:
+
+\begin{equation}
+  \text{PICP} = \frac{1}{N}\sum_{i=1}^{N} \mathbf{1}\!\left[y_i \in [\hat{y}_i - z_{\alpha/2}\hat{\sigma}_i,\; \hat{y}_i + z_{\alpha/2}\hat{\sigma}_i]\right]
+\end{equation}
+
+A well-calibrated model achieves $\text{PICP} \approx 1-\alpha$: for a 90\% interval, roughly 90\% of observations should fall inside. If coverage is too low the model is overconfident; if too high, the intervals are unnecessarily wide.
+
+\subsubsection{Statistical Tests}
+\label{sec:statistical_tests}
+
+Two statistical tests are used to quantify the strength and significance of relationships in the multi-seed evaluation.
+
+The \textbf{Spearman rank correlation} $\rho$ measures the monotonic association between two variables without assuming a linear relationship or normal distribution. It is computed on ranks rather than raw values, making it robust to outliers. A value of $\rho = 1$ indicates a perfect positive monotonic relationship; $\rho = 0$ indicates no monotonic association. The associated $p$-value tests the null hypothesis that the two variables are uncorrelated in the population.
+
+The \textbf{paired $t$-test} compares the means of two matched samples. In this thesis it is applied to the per-seed difference in RMSE between two pipeline configurations evaluated on the same 40 random splits. The test statistic is $t = \bar{d} / (s_d / \sqrt{n})$, where $\bar{d}$ is the mean pairwise difference, $s_d$ its standard deviation, and $n = 40$ the number of split seeds. The two-sided $p$-value tests the null hypothesis that the true mean difference is zero.
+
+% ------------------------------------------------------------
+\subsection{Hyperparameter Optimization}
+\label{subsec:hpo}
+% ------------------------------------------------------------
+
+Hyperparameters for both the GRU and the GP are selected by iterative grid search over
+predefined search spaces. Each round evaluates all combinations in the grid, identifies the
+best-performing configuration, and uses it to define a narrower search space for the next
+round. Four rounds are run for the GRU and three for the GP. GRU configurations are
+evaluated on a temporal validation set (2016--2019); GP configurations are
+evaluated on spatial validation wells.
+
+% ============================================================
+\section{System Design}
+\label{sec:system_design}
+% ============================================================
+
+% ------------------------------------------------------------
+\subsection{Overview}
+\label{sec:design_overview}
+% ------------------------------------------------------------
+
+The GIST system addresses two coupled prediction tasks: temporal forecasting and spatial
+interpolation. The high-level design decomposes the problem into two stages, which can be
+executed independently (two-stage spatiotemporal pipeline) or trained jointly (jointly trained spatiotemporal model). A third
+configuration replaces GRU outputs with true observations to isolate the contribution of
+each stage (true-observation interpolation baseline).
+
+The large spatial-to-temporal variance ratio in the dataset (\cref{sec:variation}) means a model needs to separate the long-term mean level at each location from the temporal dynamics. Per-well normalization handles this by subtracting each well's long-term mean level and dividing by its standard deviation before training, so the model learns deviations rather than absolute groundwater levels. This decomposition into a spatial per-well mean and temporal deviations motivates the two-stage pipeline: the GRU learns temporal dynamics on normalized series, after which the GP reconstructs the spatial mean at unobserved locations. \citet{kunz2025} apply no per-well normalization; as a result, the standard deviation of GWL is their single most important static feature.
+
+Beyond predictive accuracy, the evaluation includes explicit interpretability analyses. A GRU feature permutation importance study and a systematic GP feature ablation, both in \cref{ch:results}, show which input features the GRU relies on for temporal forecasting and which spatial features the GP relies on for interpolation.
+
+\Cref{fig:pipeline_overview} shows the three model configurations. In all cases, the
+final output is a 16-week GWL forecast for each of the test wells.
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[
+    box/.style={rectangle, draw, rounded corners=4pt,
+                minimum height=1.05cm, minimum width=2.3cm,
+                align=center, font=\small},
+    arrow/.style={-Stealth, semithick},
+    lbl/.style={font=\tiny\itshape, fill=white, inner sep=1.5pt, align=left},
+    head/.style={font=\small\bfseries, align=center},
+  ]
+
+  % Column x-centres and row y-centres (absolute positioning)
+  % Three pipelines flow top-to-bottom in side-by-side columns.
+  % Levels: 1=input  2=GRU  3=GP  4=output
+  % True-Observation Baseline skips level 2; the longer arrow signals the absent temporal model.
+
+  \def\xA{1.5}   % Two-Stage column
+  \def\xB{5.5}   % True-Observation Baseline column
+  \def\xC{9.5}   % Jointly Trained column
+
+  \def\yTitle{0.55}
+  \def\yOne{-0.2}    % input box
+  \def\yTwo{-2.2}    % GRU box
+  \def\yThree{-4.2}  % GP box
+  \def\yFour{-6.4}   % output box
+
+  % ── Two-Stage Pipeline ──────────────────────────────────────────────
+  \node[head] at (\xA cm, \yTitle cm) {Two-Stage Pipeline};
+
+  \node[box, fill=purple!15]  (dI) at (\xA cm, \yOne cm)   {Training Wells};
+  \node[box, fill=blue!20]   (dG) at (\xA cm, \yTwo cm)   {GRU\\Seq2Seq};
+  \node[box, fill=green!15]  (dP) at (\xA cm, \yThree cm) {GP\\(Mat\'{e}rn-3/2)};
+  \node[box, fill=orange!15] (dO) at (\xA cm, \yFour cm)  {Test Wells};
+
+  \draw[arrow] (dI.south) -- (dG.north)
+    node[midway, right=3pt, lbl] {history +\\features};
+  \draw[arrow] (dG.south) -- (dP.north)
+    node[midway, right=3pt, lbl] {$\hat{y}$ at\\training wells};
+  \draw[arrow] (dP.south) -- (dO.north)
+    node[midway, right=3pt, lbl] {interpolated\\$\hat{y}$};
+
+  % ── True-Observation Interpolation Baseline ──────────────────────────
+  \node[head] at (\xB cm, \yTitle cm) {Interp. Baseline};
+
+  \node[box, fill=purple!8]   (oI) at (\xB cm, \yOne cm)   {Training Wells};
+  \node[box, fill=green!15]  (oP) at (\xB cm, \yThree cm) {GP\\(Mat\'{e}rn-3/2)};
+  \node[box, fill=orange!15] (oO) at (\xB cm, \yFour cm)  {Test Wells};
+
+  % Long arrow (spans level 2 gap) – signals absence of temporal model
+  \draw[arrow] (oI.south) -- (oP.north)
+    node[midway, right=3pt, lbl] {true $y$ at\\training wells};
+  \draw[arrow] (oP.south) -- (oO.north)
+    node[midway, right=3pt, lbl] {interpolated\\$\hat{y}$};
+
+  % ── Jointly Trained Spatiotemporal Model ─────────────────────────────
+  \node[head] at (\xC cm, \yTitle cm) {Jointly Trained};
+
+  \node[box, fill=purple!15]  (jI) at (\xC cm, \yOne cm)   {Training Wells};
+  \node[box, fill=blue!20]   (jG) at (\xC cm, \yTwo cm)   {GRU\\Seq2Seq};
+  \node[box, fill=green!15]  (jP) at (\xC cm, \yThree cm) {GP\\(Mat\'{e}rn-3/2)};
+  \node[box, fill=orange!15] (jO) at (\xC cm, \yFour cm)  {Test Wells};
+
+  \node[draw, dashed, rounded corners=5pt, inner sep=0.32cm,
+        fit=(jG)(jP)] (jbox) {};
+
+  \draw[arrow] (jI.south) -- (jG.north)
+    node[midway, right=3pt, lbl] {history +\\features};
+  \draw[arrow] (jG.south) -- (jP.north)
+    node[midway, right=3pt, lbl] {$\hat{y}$ at\\training wells};
+  \draw[arrow] (jP.south) -- (jO.north)
+    node[midway, right=3pt, lbl] {interpolated\\$\hat{y}$};
+  \draw[arrow] (jP.west) to[bend left=40]
+    node[pos=0.5, left=2pt, lbl] {joint\\loss} (jG.west);
+
+  \end{tikzpicture}
+  \caption{The three model configurations evaluated in this thesis ($y$: true observed GWL; $\hat{y}$: model prediction). In the two-stage spatiotemporal pipeline (left), the GRU and GP are trained independently: the GRU forecasts GWL at training wells, and the GP spatially interpolates those forecasts to test wells. The true-observation interpolation baseline (centre) replaces GRU forecasts with true observations, giving an upper bound on what the two-stage pipeline can achieve if the temporal forecasts are perfect. In the jointly trained spatiotemporal model (right), GRU and GP are trained end-to-end with a joint loss.}
+  \label{fig:pipeline_overview}
+\end{figure}
+
+% ------------------------------------------------------------
+\subsection{Temporal Split}
+\label{sec:temporal_split}
+% ------------------------------------------------------------
+
+All 1{,}040 wells are assigned to one of three temporal periods. The
+\textbf{training period} covers each well's available data from its start of coverage
+(between 1951 and 2008) through the end of 2015 and is the only period on which GRU weights
+are updated. The \textbf{validation period} covers 2016 through the end of 2019 and is used
+for GRU hyperparameter optimisation and early stopping. The \textbf{test period} covers 2020
+through mid-2024 and is held out until final evaluation. All spatiotemporal forecasts reported
+in this thesis are evaluated on test-period predictions at spatial test wells that are never
+seen during training.
+
+% ------------------------------------------------------------
+\subsection{Spatial Test Split}
+\label{sec:spatial_splits}
+% ------------------------------------------------------------
+
+\subsubsection{Co-location Constraint}
+\label{sec:coloc_constraint}
+
+Before the split is drawn, all wells within 8\,m of at least one other well are permanently assigned to training (see \cref{sec:deduplication}). This leaves 732 eligible test wells.
+
+\subsubsection{Random Split}
+
+Wells are randomly assigned to train and test sets. The primary
+evaluation uses a 90/10 split on the full 1{,}040-well dataset under the co-location constraint,
+giving 936 training wells and 104 test wells with independent randomisation across 40
+different split seeds. In a random split, test wells are distributed geographically among training wells (\cref{fig:random_split}).
+
+Brandenburg has an unusually dense groundwater monitoring network (see \cref{sec:dataset}). The core question of this thesis is what such a network can achieve for the forecast-anywhere problem.
+An 80\% training fraction is not used: test-set stability is already sufficient at 104 wells per seed, and the larger training set at 90\% better reflects what Brandenburg's full monitoring network can achieve, which is the core question of this study.
+A 95\% training fraction is also tested but dropped: with only about 52 test wells per seed, per-seed RMSE is noisy and the across-seed standard deviation is high.
+The 90/10 split keeps 936 training wells close to the full available network while giving 104 test wells per seed for stable aggregate statistics.
+The 10\% final test fraction is also consistent with \citet{kunz2025}, who reserve similar fractions for temporal validation and test.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.72\textwidth]{spatial_split_rand90_ss42_presentation}
+  \caption{Random 90/10 spatial test split (blue = training, orange = test). Co-located wells are forced into training. Test wells are distributed geographically across the monitoring network.}
+  \label{fig:random_split}
+\end{figure}
+
+\subsubsection{Why Leave-One-Out Cross-Validation Was Not Used}
+\label{sec:loocv_rationale}
+
+Leave-one-out cross-validation (LOOCV) is a natural candidate for spatial evaluation, but
+it is not considered an appropriate protocol for the research question this thesis addresses.
+
+\paragraph{Conceptual mismatch.}
+As discussed in \cref{sec:rw_ungauged}, LOOCV retains each test well's closest spatial
+neighbors in training, so the GP interpolates over a very short spatial gap and the measured
+error reflects gap-filling within a near-complete network rather than generalization to
+genuinely unmonitored locations. Co-located wells could in principle be included by grouping wells at the same location and holding out entire groups, but some test folds would then contain multiple test wells, which complicates the procedure.
+
+Furthermore, the key empirical finding of this thesis (that per-well interpolation error
+correlates positively with distance to the nearest training neighbor) would be essentially
+invisible under LOOCV: by construction, most test wells have a very close training
+neighbor, so the error distribution would be heavily concentrated near zero distance and miss
+the tail behavior that is the most scientifically interesting part of the result.
+
+\paragraph{Computational cost.}
+For a global GRU model, LOOCV would require 732--1{,}039 separate full pipeline runs (depending on how co-located wells are handled), making this approach infeasible at this data scale: at roughly 24 minutes per two-stage pipeline run, that amounts to approximately 13--18 days of compute on a single GPU, and approximately 30--45 days for the jointly trained pipeline.
+
+\subsubsection{Alternative Test Strategies}
+\label{sec:alt_splits}
+
+Three additional test configurations are explored alongside the primary random split to assess how the choice of split design shapes reported performance. All three are evaluated as a sensitivity analysis in \cref{sec:split_sensitivity}.
+
+\paragraph{Dense-area split.}
+All distances between each eligible (non-co-located) well and its three nearest neighbors are computed and ranked. The 50th percentile of this distribution identifies the wells with the shortest typical neighborhood distances, those in the denser half of the monitoring network. Test wells are then drawn randomly from this restricted pool at a 90/10 fraction. Because every test well in the Dense-area split is drawn from an area with close training neighbors, the spatial interpolation task is easier on average than under a fully random draw. The 50th percentile is a fixed design boundary, not a tuned threshold: lowering it would change which wells are in the training set, making it a different experiment rather than a sensitivity check on the same model.
+
+\paragraph{Cluster-stratified split.}
+The 732 eligible (non-co-located) wells are partitioned into $k = 20$ clusters using $k$-means on all 35 static hydrogeological features. A fixed fraction of approximately 14\% is drawn from each cluster, giving a total close to 98 test wells; the exact count may differ by a few wells due to rounding within clusters. This distributes test wells uniformly across the static-feature space, regardless of their spatial position. Unlike the random split, which distributes training and test wells geographically at random, this strategy ensures that every part of the hydrogeological feature space is represented in both training and test sets.
+
+\paragraph{Sparse-area split.}
+The Sparse-area split reverses the logic of the Dense-area split: test wells are drawn from the 20\% of eligible (non-co-located) wells with the largest nearest-neighbor distances among eligible wells, those above the 80th percentile of that distribution; every test well therefore lies in a sparse area of the monitoring network. This creates a harder interpolation task than the random split, since the GP must generalize over larger distances with fewer nearby training wells. The two area-based splits cover opposite ends of interpolation difficulty: the Dense-area split creates an easier interpolation task, the Sparse-area split a harder one.
+
+The area-based splits are not equivalent to post-hoc subsampling: by reassigning wells between train and test, they change the data the model trains on, so the same model cannot be evaluated under both conditions without retraining. The cluster-stratified split additionally guarantees feature-space coverage that random sampling may not provide. The sensitivity analyses therefore test generalization under genuinely different training conditions, and their consistency with the random-split results strengthens rather than merely repeats that evidence.
+
+% ------------------------------------------------------------
+\subsection{GRU Model Design}
+\label{sec:gru_design}
+% ------------------------------------------------------------
+
+The GRU follows the seq2seq architecture described in \cref{subsec:rnn_gru}.
+It consists of six stages:
+\begin{enumerate}[label=\textcircled{\small\arabic*}]
+  \item \textit{Data preparation.} The 1\,040 wells are split spatially into train and test sets.
+    The temporal axis is further divided into a training, validation, and test period on the spatial train wells.
+    GWL is normalized per well (z-score); weather covariates and static features are normalized globally.
+    A sliding-window procedure creates overlapping 52-week input / 16-week output samples, with a 1-week shift between consecutive windows.
+  \item \textit{Model inputs.} Each sample contains \texttt{x\_past} (52 time steps of GWL and 5 weather covariates),
+    \texttt{x\_future} (16 time steps of future weather covariates), \texttt{x\_static} (35 static well attributes),
+    and \texttt{y\_future} (16 normalized GWL values used as training targets).
+  \item \textit{Static projection.} The 35 static features are passed through a linear layer
+    (\texttt{Linear(35 $\to$ 256\,$\times$\,4\,=\,1\,024)}) and reshaped to provide each of the 4 encoder layers
+    with a dedicated 256-dimensional initial hidden state, encoding the identity and characteristics of the well.
+  \item \textit{Encoder GRU.} The encoder has 4 layers with 256 nodes each and dropout 0.2 between layers.
+    It processes the 52-week input sequence step by step; the final hidden state of each layer is passed to the corresponding decoder layer.
+  \item \textit{Decoder GRU.} The decoder has the same 4-layer, 256-node structure.
+    It is initialized with the encoder's final hidden state and processes 16 steps of future weather covariates as step-by-step input,
+    autoregressively building up a representation of the forecast period.
+  \item \textit{Output head, denormalization, and predictions.} A linear layer (\texttt{Linear(256 $\to$ 1)}) is applied
+    to each of the 16 decoder outputs, producing 16 normalized GWL predictions.
+    These are then denormalized using the per-well z-score parameters fitted on the training period,
+    converting each value back to absolute GWL in metres above mean sea level.
+    During training, the mean squared error between the normalized predictions and \texttt{y\_future} is used as the loss.
+\end{enumerate}
+
+\Cref{fig:twostage_pipeline} illustrates the complete architecture across all six stages.
+
+\subsubsection{GRU Static Features}
+\label{sec:gru_static_features}
+
+The GRU uses 35 static features per well, drawn from the full feature set described in
+\cref{sec:features}. The raw aquifer confinement flag is replaced by its binarized equivalent (\texttt{gw\_gespannt\_bin}), keeping the total at 35.
+The hydrogeological zone is used both as a GRU input (one-hot encoded into three categories) and
+as the primary GP spatial feature (\cref{sec:gp_design}), where the GP feature ablation
+identifies it as the single most informative covariate for spatial interpolation
+(\cref{sec:gp_ablation}).
+
+\subsubsection{Best Hyperparameter Configuration}
+
+The best GRU configuration is identified through iterative grid search (\cref{subsec:hpo}) over hidden dimension, layer count,
+dropout, learning rate, and batch size, evaluated on a temporal validation period.
+The selected configuration is:
+
+\begin{itemize}
+  \item \textit{Architecture:} hidden dimension 256, 4 layers, dropout 0.2
+  \item \textit{Optimisation:} learning rate $2 \times 10^{-4}$, batch size 4096, up to 50 epochs with early stopping (patience~$= 5$)
+  \item \textit{Sequence lengths:} input window 52 weeks, output horizon 16 weeks
+\end{itemize}
+
+This configuration trains in roughly 20 minutes on an NVIDIA A100 GPU and is used for
+all multi-seed spatiotemporal forecast interpolation experiments throughout this thesis.
+
+% ------------------------------------------------------------
+\subsection{Gaussian Process Design}
+\label{sec:gp_design}
+% ------------------------------------------------------------
+
+The GP interpolation pipeline takes GRU-predicted GWL values at all training wells, together
+with their coordinates and hydrogeological zone (one-hot encoded), and assembles them per
+forecast horizon. For each horizon separately, an exact Gaussian Process with a Matérn-3/2
+kernel is fitted. The kernel uses Automatic Relevance Determination (ARD): each input feature
+gets its own length-scale, so the model learns how much geographic distance and zone membership
+matter for spatial similarity. The fitted GP produces a GWL prediction and an uncertainty
+estimate at each test well.
+
+\subsubsection{Input Space}
+
+The GP operates on a per-timestep snapshot: at each forecast date and horizon, the vector of
+GWL values at all training wells is treated as a spatial field. The input $\mathbf{x}_i$ to
+the GP is the coordinate vector of well $i$, optionally augmented with
+static hydrogeological features. GRU predictions
+at training well locations serve as the target vector $\mathbf{y}$ in the GP equations
+(\cref{subsec:gp_background}); in the true-observation interpolation baseline, true observations are used
+instead. The GP posterior then yields predictions at test well locations.
+
+\subsubsection{Mean Function}
+
+A zero mean function is used. Preliminary multi-seed experiments show a constant mean function performs worse, likely because the kernel's output scale already captures the overall level and a constant offset adds nothing.
+
+\subsubsection{Kernel}
+
+The Matérn-3/2 kernel (\cref{eq:matern32}) is applied in the augmented input space
+(coordinates + static features). Automatic Relevance Determination (ARD) is used: each input
+dimension receives its own length-scale parameter $\ell_d$, allowing the kernel to weight
+coordinate dimensions and static features differently. The ARD length-scales are jointly
+optimized with the noise variance and output scale via marginal likelihood maximisation.
+
+\subsubsection{Kernel Pretraining and Per-Date Inference}
+\label{sec:gp_inference_procedure}
+
+Evaluating the GP across all test dates and forecast horizons requires fitting kernel hyperparameters in a way that is computationally tractable and consistent. The procedure used here has two levels.
+
+\textbf{Per-horizon kernel pretraining.} For each of the 16 forecast horizons separately, all available training-well predictions (or true observations, for the interpolation baseline) across the entire test period are pooled into a single dataset. From this pooled dataset, 128 points are randomly subsampled and used to optimize the Matérn-3/2 kernel hyperparameters (length-scales, output scale, and noise variance) by maximising the marginal log-likelihood via 300 steps of Adam gradient descent \citep{kingma2015adam}, an adaptive-moment optimizer that maintains per-parameter learning rates. This yields 16 sets of kernel hyperparameters, one per horizon (\cref{app:gp_hpo}). The pooled dataset spans the full test period and covers the full spatial distribution of training wells, so even a small subsample represents the global spatial correlation structure well; 128 points suffice for a 7-parameter kernel optimization, and the per-date Cholesky inference that follows uses all $n \approx 936$ training wells.
+
+\textbf{Per-(date, horizon) Cholesky inference.} Once the kernel hyperparameters are fixed for a given horizon, the GP posterior at test well locations is computed by exact Cholesky factorisation for every (date, horizon) pair in the test period. At each such pair, the $n \times n$ kernel matrix is formed from the $n \approx 936$ training-well inputs available on that date, and the Cholesky decomposition $\mathbf{K} + \sigma_n^2 \mathbf{I} = \mathbf{L}\mathbf{L}^\top$ is solved to obtain the posterior mean and variance at each test well. Kernel hyperparameters are not updated between dates; the pretraining step already captures the global spatial structure.
+
+This separation of kernel optimization (once per horizon, on pooled data) from posterior inference (once per (date, horizon) pair, on single-date data) keeps the total computation tractable: pretraining dominates only in the number of gradient steps, while inference at each date takes roughly a millisecond on GPU.
+
+An alternative would be to refit kernel hyperparameters independently for each (date, horizon) pair using only that date's observations. A pilot experiment across three spatial random-90/10 splits finds no consistent improvement: mean per-well RMSE is 1.37\,m for per-date refitting versus 1.33\,m for pooled pretraining, and per-date NSE values are numerically unstable (range $-37$ to $-92$), reflecting ill-conditioned per-date fits with $n \approx 936$ observations but only 300 Adam steps of kernel optimization. The pooled procedure is therefore retained.
+
+% ------------------------------------------------------------
+\subsection{True-Observation Interpolation Baseline}
+\label{sec:interp_baseline}
+% ------------------------------------------------------------
+
+The true-observation interpolation baseline replaces GRU predictions at training well locations with the true observed
+GWL values before fitting the GP. This provides a performance ceiling for the spatial
+interpolation stage: it answers the question of how well the GP could interpolate if
+the temporal forecasting stage were perfect.
+
+The interpolation baseline gap measures how much the GRU's forecasting
+errors propagate into the GP's spatial predictions. If this gap is small, the bottleneck for
+further improvement lies in the GP's spatial generalization ability, not in the GRU. If the
+gap is large, the temporal model should be improved first.
+
+% ------------------------------------------------------------
+\subsection{Jointly Trained Spatiotemporal Model}
+\label{sec:joint_design}
+% ------------------------------------------------------------
+
+The jointly trained spatiotemporal model attempts to learn GRU weights that produce forecasts particularly
+suited for spatial interpolation. Rather than training GRU and GP independently, both components
+share a combined loss and are optimized simultaneously.
+
+A three-way split of wells is required: training wells (for GRU and GP training), spatial
+validation wells (for GP supervision during training), and test wells.
+This differs structurally from the two-stage spatiotemporal pipeline, which uses only a two-way split into
+training and test wells. Because joint training reserves part of the training wells as a spatial validation set,
+the two configurations cannot be exactly matched on both splits. This structural
+asymmetry is an inherent property of this approach and must be kept in mind when
+comparing results across configurations: matching the number of training wells gives the jointly trained spatiotemporal model
+fewer test wells for evaluation, while matching the test set reduces the GRU's training
+data.
+
+Early stopping uses patience~$= 15$: the spatial validation loss descends non-monotonically
+for roughly 10--12 epochs before stabilizing, meaning the loss may temporarily increase over
+several consecutive epochs even while the overall trend is downward; patience~$= 5$ would
+fire prematurely when the loss rises for a few consecutive epochs.
+
+The combined loss is:
+
+\begin{equation}
+  \mathcal{L} = \mathcal{L}_{\text{GRU}} + \lambda \cdot \mathcal{L}_{\text{GP}}
+  \label{eq:joint_loss}
+\end{equation}
+
+where $\mathcal{L}_{\text{GRU}}$ is the MSE of GRU predictions at training wells,
+$\mathcal{L}_{\text{GP}}$ is the MSE of GP interpolations at spatial validation wells,
+and $\lambda$ is a weight controlling the balance between the two losses.
+Crucially, the GP is conditioned on the GRU's current predictions at training wells, so
+$\mathcal{L}_{\text{GP}}$ is an explicit function of the GRU's parameters.
+This is possible because $\boldsymbol{\mu}_* = \mathbf{K}_*(\mathbf{K} + \sigma_n^2\mathbf{I})^{-1}\mathbf{y}$ is differentiable with respect to $\mathbf{y}$, so PyTorch's autodiff traces through the Cholesky solve and returns gradients to the GRU without any special treatment.
+Within each epoch, two separate gradient passes update the GRU:
+Phase~A backpropagates $\mathcal{L}_{\text{GRU}}$ directly from the temporal MSE on the
+training period; Phase~B backpropagates $\lambda \cdot \mathcal{L}_{\text{GP}}$ through the
+GP's conditioning equations back to the GRU, providing a spatial gradient signal.
+Phase~B also updates the GP kernel hyperparameters; Phase~A updates only the GRU.
+
+The key structural difference from the two-stage spatiotemporal pipeline is that both the GRU temporal loss
+and the GP spatial loss are computed within each epoch, so gradients from both objectives
+update the GRU parameters.
+
+The coupling weight $\lambda = 0.0001$ is selected by a systematic sweep over
+\begin{equation*}
+  \lambda \in \{0.00001,\ 0.0001,\ 0.001,\ 0.01,\ 0.1,\ 0.3,\ 0.5,\ 0.7,\ 0.9\}
+\end{equation*}
+on a single representative split seed; full results are reported in
+\cref{tab:lambda_sweep}. Performance improves monotonically as $\lambda$ decreases from 0.9
+to 0.0001, and degrades rapidly above 0.5. Below 0.0001
+performance starts dropping again, so 0.0001 is the practical lower bound.
+The production joint training runs use the h256/l4 architecture identified by manual grid search (the same as the two-stage spatiotemporal pipeline GRU), rather than h128/l5 identified by automated HPO; a subsequent architecture sweep confirms h256/l4 outperforms the automated HPO optimum under production settings (\cref{sec:dead_ends_section}); \cref{tab:pipeline_comparison} lists all structural differences and shared properties between the two configurations.
+
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Aspect} & \textbf{Two-Stage} & \textbf{Jointly Trained} \\
+\midrule
+\multicolumn{3}{l}{\textit{Differences}} \\[3pt]
+Well split & 2-way: train / test & 3-way: train / val / test \\
+GRU gradient signal & $\mathcal{L}_{\text{GRU}}$ only & $\mathcal{L}_{\text{GRU}}$ and $\lambda \cdot \mathcal{L}_{\text{GP}}$ \\
+GP supervision & None during GRU training & MSE at spatial validation wells \\
+GP conditioning inputs & All training wells & Spatial train wells only \\
+Early stopping patience & 5 epochs & 15 epochs \\
+Batch size & 4096 & per-date \\[3pt]
+\midrule
+\multicolumn{3}{l}{\textit{Shared properties}} \\[3pt]
+GRU architecture & \multicolumn{2}{l}{h256 / 4 layers, dropout 0.2} \\
+GP kernel & \multicolumn{2}{l}{Matérn-3/2 with ARD length-scales} \\
+Evaluation target & \multicolumn{2}{l}{Test wells, never seen during training} \\
+Input features & \multicolumn{2}{l}{Same GRU and GP feature sets} \\
+GP conditioning dates & \multicolumn{2}{l}{All test-period dates} \\
+\bottomrule
+\end{tabular}
+\caption{Structural comparison of the two-stage spatiotemporal pipeline and the jointly trained spatiotemporal model}
+\label{tab:pipeline_comparison}
+\end{table}
+
+% ------------------------------------------------------------
+\subsection{Pipeline Comparison}
+\label{subsec:pipeline_comparison_methods}
+% ------------------------------------------------------------
+
+\Cref{tab:pipeline_comparison} summarises the key structural differences and shared
+properties of the two-stage spatiotemporal pipeline and the jointly trained spatiotemporal model.
+
+% ------------------------------------------------------------
+\subsection{Evaluation Design Justification}
+\label{sec:seed_design}
+% ------------------------------------------------------------
+
+The 40-seed, 1-GRU-seed, 1-GP-seed evaluation design reflects a deliberate balance
+between statistical robustness and computational cost.
+\Cref{tab:seed_design} summarises the rationale for each component.
+
+\begin{table}[htbp]
+\centering
+\begin{tabularx}{\linewidth}{lcX}
+\toprule
+\textbf{Component} & \textbf{\# seeds} & \textbf{Rationale} \\
+\midrule
+Split seed & 40 & Std $\approx 9{\times}$ GP/GRU std; 40\,$\times$\,1\,$\times$\,1 minimises total SE
+  among all factorizations; $\rho = 0.603$ distance--error Spearman gives $t = 4.66$,
+  $p < 0.001$ \\
+GP seed    & 1  & Kernel init.\ noise negligible ($\sigma \approx 0.048$
+  nRMSE\textsubscript{pw}); the seed with median nRMSE\textsubscript{pw} across the
+  10 seeds tested \\
+GRU seed   & 1  & Stable at this data scale; split seed variance dominates \\
+\bottomrule
+\end{tabularx}
+\caption{Multi-seed evaluation design: component counts and justification}
+\label{tab:seed_design}
+\end{table}
+
+\Cref{tab:seed_variance} quantifies the variance contributed by each seed type,
+measured as nRMSE\textsubscript{pw} with all other settings fixed.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lccc}
+\toprule
+\textbf{Seed type} & \textbf{\# seeds tested} & \textbf{Std} & \textbf{Range} \\
+\midrule
+GP seed    & 10 & 0.048 & 0.136 \\
+GRU seed   & 11 & 0.038 & 0.146 \\
+Split seed & 10 & 0.430 & 1.324 \\
+\bottomrule
+\end{tabular}
+\caption{nRMSE\textsubscript{pw} by seed type (std and range; all other settings fixed)}
+\label{tab:seed_variance}
+\end{table}
+
+GP seed std ($\approx$ 0.048 nRMSE\textsubscript{pw}) is small relative to the effect
+sizes compared across pipelines; a single median seed (GP seed~7, $z = -0.05\sigma$
+from the 10-seed mean on pooled RMSE) is therefore sufficient.
+GRU seed std ($\approx$ 0.038 nRMSE\textsubscript{pw}) is comparable in magnitude and
+substantially smaller than split seed std, so a single well-tuned seed (GRU seed~47,
+$z = -0.30\sigma$ from the 10-seed mean) is used throughout.
+Split seed std ($\approx$ 0.430 nRMSE\textsubscript{pw}) is roughly nine times the GP
+seed std and more than eleven times the GRU seed std, which confirms that test set
+composition is the dominant source of uncertainty.
+\citet{willard2025ensembles} find the same pattern in stream temperature prediction:
+architecture and input-feature diversity contribute more to ensemble performance than varying random weight initialization.
+Forty seeds (ss42--ss81) reduce the standard error of the mean to
+$0.430/\sqrt{40} \approx 0.068$ nRMSE\textsubscript{pw}, which is 95\% of the reduction
+attainable with 81 seeds at half the computational cost.
+Because split variance dominates so strongly, the 40\,$\times$\,1\,$\times$\,1
+allocation minimises total SE among all integer factorizations of 40 total runs:
+diverting runs to additional GP or GRU seeds would only increase overall uncertainty.
+The design also provides strong power for the distance--error analysis: the Spearman
+test gives $t = 4.66$ ($p < 0.001$, $df = 38$).
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=\textwidth]{decoupled_flowchart_v2}
+  \caption{Full two-stage spatiotemporal pipeline architecture (sections \textcircled{\small 1}–\textcircled{\small 7}). The GRU forecasts GWL at
+  training wells (sections \textcircled{\small 1}–\textcircled{\small 6}); the GP then spatially interpolates those forecasts to
+  test wells (section \textcircled{\small 7}). Both components are trained independently.}
+  \label{fig:twostage_pipeline}
+\end{figure}
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=\textwidth]{joint_flowchart_v3}
+  \caption{Jointly trained spatiotemporal model (sections \textcircled{\small 1}–\textcircled{\small 8}). GRU and GP are trained end-to-end
+  with a combined loss $\mathcal{L} = \mathcal{L}_{\text{GRU}} + \lambda \cdot \mathcal{L}_{\text{GP}}$
+  ($\lambda = 0.0001$), combining GRU temporal MSE with GP spatial MSE at validation wells.
+  The GP is conditioned on GRU predictions, so backpropagating $\mathcal{L}_{\text{GP}}$
+  returns gradients to the GRU. A three-way well split is required: GRU training wells, GP
+  spatial validation wells, and test wells.}
+  \label{fig:joint_pipeline}
+\end{figure}
+
+% ============================================================
+\section{Implementation}
+\label{sec:implementation}
+% ============================================================
+
+The full implementation is available at \url{https://github.com/calgo-lab/gist}.
+
+% ------------------------------------------------------------
+\subsection{Software Stack}
+\label{sec:software}
+% ------------------------------------------------------------
+
+The implementation uses Python 3.12 throughout. The GRU temporal model is implemented in
+PyTorch \citep{paszke2019pytorch}, using standard \texttt{nn.GRU} layers with a custom
+sequence-to-sequence wrapper and static-feature initialization of the encoder hidden state.
+The Gaussian Process is implemented using GPyTorch \citep{gardner2018gpytorch} with exact
+inference via Cholesky factorisation, as described in \cref{subsec:gp_background}.
+
+Hyperparameter optimization is managed via iterative grid search, as described in \cref{subsec:hpo}.
+Data preprocessing, feature engineering, and experiment tracking are handled with NumPy,
+Pandas, and a lightweight custom experiment registry. Visualisation uses Matplotlib and
+Seaborn.
+
+% ------------------------------------------------------------
+\subsection{Compute Infrastructure}
+\label{sec:compute}
+% ------------------------------------------------------------
+
+All training and evaluation experiments are run on NVIDIA A100, H100, and H200 GPUs
+provided through the Data Science Kubernetes cluster at Berliner Hochschule für Technik (BHT). Each job runs inside a Docker container built
+from a custom image that pins the exact Python, PyTorch, and CUDA versions, ensuring that
+all experiments are fully reproducible regardless of which GPU node the cluster schedules
+the job on. Jobs are submitted via YAML-configured workloads specifying the container image,
+resource requests, and entry point.
+
+The GRU training runtime is roughly 20 minutes per job (50 epochs with early stopping,
+1{,}040 wells, batch size 4096). GP kernel fitting (300 gradient-descent steps on the
+marginal log-likelihood) is negligible in runtime; GP posterior evaluation (exact Cholesky
+inference across all forecast dates and horizons) takes approximately 3 minutes per
+split-seed. A full two-stage spatiotemporal pipeline job (1 GRU train + 1 GP evaluation)
+therefore takes approximately 24 minutes; the true-observation interpolation baseline approximately 3 minutes. The jointly trained spatiotemporal model, which runs GRU and GP end-to-end in a single job, takes approximately 51 minutes
+per run.
+
+\Cref{tab:pipeline_efficiency} summarises the per-pipeline cluster job structure and
+approximate runtimes per cluster job.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Configuration} & \textbf{Steps per cluster job} & \textbf{Approx.\ time/job} \\
+\midrule
+Two-Stage Spatiotemporal Pipeline  & 1 GRU train $+$ 1 GP eval (gp\_seed 7) & $\approx$24\,min \\
+True-Observation Interp.\ Baseline & 1 obs build $+$ 1 GP eval               & $\approx$3\,min \\
+Jointly Trained Spatiotemporal Model & 1 joint training GRU+GP run              & $\approx$51\,min \\
+Global GRU & 1 GRU train (1{,}040 wells, no test set) & $\approx$21\,min \\
+\bottomrule
+\end{tabular}
+\caption{Cluster job structure and runtime for each model configuration}
+\label{tab:pipeline_efficiency}
+\end{table}
+
+% ============================================================
+\section{Chapter Summary}
+% ============================================================
+
+The GRU seq2seq model, Matérn-3/2 GP, and three pipeline variants are now fully specified. The evaluation protocol is fixed: a random 90/10 spatial split with a co-location constraint, repeated over 40 seeds, with hydrogeological zone as the sole GP feature (\cref{tab:pipeline_comparison}). Whether the two-stage pipeline actually benefits from the temporal forecasting step, and whether joint training helps at all, are open questions that \cref{ch:results} addresses empirically.

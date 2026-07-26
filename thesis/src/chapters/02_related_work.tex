@@ -1,0 +1,170 @@
+% !TEX root = ../main.tex
+\chapter{Related Work}
+\label{ch:related_work}
+
+This chapter surveys the literature this thesis builds on, covering deep learning for hydrological forecasting
+(\cref{sec:rw_dl_hydro}), groundwater level prediction with machine learning
+(\cref{sec:rw_gwl}), prediction at spatially unmonitored locations
+(\cref{sec:rw_ungauged}), spatial interpolation and Gaussian Process regression for
+groundwater (\cref{sec:rw_gwl_interp}), joint spatiotemporal modeling
+(\cref{sec:rw_joint}), uncertainty quantification (\cref{sec:rw_uq}), and
+reproducibility practices in deep learning for hydrology (\cref{sec:rw_repro}). The chapter
+closes with a dedicated discussion of the most directly related work, \citet{kunz2025}, and
+the gaps this thesis fills (\cref{sec:rw_kunz}).
+
+%-----------------------------------------------------------
+\section{Deep Learning for Hydrological Forecasting}
+\label{sec:rw_dl_hydro}
+%-----------------------------------------------------------
+
+Hydrological time series modeling has been dominated by recurrent neural
+networks (RNNs). Long Short-Term Memory (LSTM) networks \citep{hochreiter1997long}
+solved the vanishing gradient problem of early RNNs by introducing memory cells and
+multiplicative gating mechanisms, which makes it possible for gradients to flow over
+long sequences. This matters for hydrology, where groundwater and streamflow
+dynamics show long-term patterns over weeks to months.
+The Gated Recurrent Unit (GRU) \citep{cho2014learning} simplifies the LSTM design to two gates at lower computational cost, which makes it a practical alternative for the long look-back windows (52 weeks) required in this thesis.
+Each GRU cell has its own reset and update gate, so cells can specialize across timescales:
+cells that mostly keep their update gate active hold onto long-range patterns, while cells
+that frequently reset respond to recent inputs. This makes the GRU a good fit for
+groundwater dynamics, where precipitation responses are fast and seasonal recharge is slow.
+\citet{willard2025ensembles} systematically evaluate GRUs for prediction at unmonitored
+locations across a large set of stream temperature prediction tasks and find similar performance to LSTMs.
+
+\citet{kratzert2018rainfall} show
+that LSTMs trained on 241 catchments from the CAMELS (Catchment Attributes and Meteorology for Large-sample Studies) benchmark dataset can match or
+exceed calibrated conceptual models (physics-based watershed models whose parameters are
+fitted to observed streamflow at each individual site) for rainfall-runoff prediction. A key finding is that models trained jointly on groups of catchments can match separate models fitted to each catchment individually. The paper further shows
+that LSTMs substantially outperform traditional RNNs in snow-influenced catchments: the RNN
+cannot retain multi-month snow accumulation across winter because of vanishing gradients,
+whereas the LSTM cell state stores this information without any explicit snow encoding. This thesis uses a GRU for the same reason: seasonal groundwater recharge also develops over months.
+
+\citet{kratzert2019toward} extend this approach to the prediction-in-ungauged-basins (PUB) problem, which asks how to predict at basins with no observed streamflow, by feeding fixed catchment features into a global model, which lets it generalize to unseen sites without per-site training. They show that an LSTM trained on gauged basins can generalize to entirely withheld basins via static catchment attributes alone, outperforming calibrated physics-based models despite never training on those basins. The PUB problem is similar to the spatial interpolation challenge of
+this thesis: just as PUB requires predicting streamflow at a site with no historical
+observations, this thesis requires predicting groundwater levels at wells where no time series
+has ever been recorded.
+
+\citet{gauch2021rainfall} extend the global model idea to multi-timescale prediction, introducing a modified LSTM architecture that simultaneously generates predictions at daily and hourly temporal resolutions.
+
+\citet{kratzert2024never} argue in a HESS Opinions piece that training on one basin at a time is statistically inferior: models then overfit to local patterns and miss the signal shared across sites. This thesis follows the same reasoning.
+
+\citet{nearing2021role} argue that the success of DL for predicting at ungauged basins is a call to action for the hydrology community to develop quantitative, scale-relevant theories of watersheds alongside ML.
+
+%-----------------------------------------------------------
+\section{Groundwater Level Prediction with Machine Learning}
+\label{sec:rw_gwl}
+%-----------------------------------------------------------
+
+Compared to surface water modeling, groundwater level prediction differs in a few ways: slower seasonal dynamics, strong coupling to geology and land use, and sparser
+observational networks. \citet{heddam2022kriging} review over a hundred studies applying
+feed-forward networks, SVMs, random forests, LSTMs, and hybrid models to GWL prediction
+across diverse hydrogeological settings.
+Most published work only evaluates on test time periods at monitored wells, so the harder problem of predicting at unmonitored locations is rarely addressed.
+
+\citet{wunsch2021groundwater} systematically compare several neural architectures for GWL forecasting across a set of monitoring wells in the Upper Rhine Graben, spanning Germany and France.
+NARX models outperform LSTM and CNN architectures on most metrics in both single-step and multi-step forecast settings, though for multi-step forecasting LSTMs and CNNs achieve higher R² scores.
+
+\citet{heudorfer2024challenges} train a global LSTM conditioned on site-specific attributes on 108 monitoring wells
+distributed across Germany, combining dynamic meteorological inputs with static site
+attributes, and achieve a mean NSE above 0.8 in an in-sample setting, which is comparable to or better than single-well models trained separately on each location. Their study is
+the direct predecessor to \citet{kunz2025}, which scales the approach to 5{,}288 wells using
+TFT and N-HiTS architectures. The more informative result comes from their out-of-sample
+evaluation, where entire wells are withheld from training: mean NSE drops to approximately
+0.67--0.69 for models conditioned on static environmental or time-series features, while a
+model with no static features at all achieves a mean NSE of 0.73, outperforming all
+static-feature variants. Permutation importance shows that dynamic meteorological inputs matter by orders of magnitude more than any static feature.
+Replacing all static features with random integers gives indistinguishable in-sample performance, which shows the model uses static features as well IDs to memorise each well's behaviour rather than learning patterns that transfer across locations. This is not specific to groundwater: \citet{lim2021temporal}
+report the same for TFT across commercial forecasting datasets, where the unique ID for each time series consistently gets the highest importance score above all other static features.
+Static attributes work in the rainfall-runoff literature, but do not seem to help for groundwater here, most likely because 108 wells is too few and too similar for any real correlations between static attributes and dynamics to show up. This is one reason this thesis adds a GP interpolation stage: static attributes alone are not enough to generalize to unmonitored locations.
+\citet{willard2023time} mark the role of static site characteristics in ML models for
+unmonitored prediction as an open question beyond groundwater, which
+means the Heudorfer finding is not a groundwater-specific exception but part of a wider unresolved problem.
+
+GWL dynamics differ from surface-water systems in two important ways. First,
+groundwater responds slowly to precipitation: the subsurface introduces lags of weeks to months between precipitation events and aquifer response, which makes long look-back windows essential. The one-year look-back window used
+in this thesis ($L = 52$ weeks) matches this delay. Second, the
+spatial structure of GWL is shaped by geological heterogeneity, which cannot be
+inferred from time series alone. This thesis handles it by encoding well-specific hydrogeological attributes into the GRU's initial hidden state through a linear projection layer.
+
+\citet{ohmer2026nevertrain} find that global LSTM models match per-well models in accuracy across approximately 3{,}000 German monitoring wells, with accuracy depending more on training-well similarity to the target than on training-set size. This suggests the benefit of global training depends on how representative the training population is, a caveat relevant to this thesis.
+
+The broader German groundwater monitoring context is documented in \citet{ohmer2026gemsger},
+who compile a 32-year benchmark dataset (1991--2022) of 3{,}207 wells across Germany with
+meteorological inputs and over 50 site-specific static attributes. The Brandenburg LfU
+network used in this thesis is one component of this larger national infrastructure; this
+dataset could be used to test the GIST pipeline across all of Germany.
+
+%-----------------------------------------------------------
+\section{Prediction at Unmonitored and Ungauged Locations}
+\label{sec:rw_ungauged}
+%-----------------------------------------------------------
+
+Parameter regionalization approaches estimate model parameters for ungauged sites by using parameters of nearby gauged ones. Deep learning replaces this step with static-attribute conditioning: \citet{kratzert2019toward} show that a global model conditioned on site attributes can generalize to unseen sites without per-site training. This still assumes that static attributes are informative enough to characterize a new location's dynamics. For groundwater, this assumption can fail when the geological setting of the target wells is not well represented in the training data, which is one of the main challenges this thesis deals with.
+
+\citet{li2022regionalization} extend the PUB approach by replacing static site attributes with randomly assigned embedding vectors and show that a global LSTM can represent
+site-specific behavior at gauged sites without being given any physical information about the site. Their finding applies only to sites seen during training: random vectors carry no information about unseen locations and cannot support prediction at genuinely unmonitored wells.
+
+\citet{willard2023time} survey ML techniques for time series prediction at unmonitored sites across streamflow, water quality, and lake temperature. Almost all reviewed studies address streamflow or water quality; groundwater appears only marginally, and \citet{kunz2025} is one of the few large-scale studies applying global deep learning to GWL prediction.
+
+\citet{varadharajan2022machine} discuss ML applications and opportunities for river water quality prediction and identify spatial generalization to unmonitored locations as a key open challenge. \citet{heudorfer2024challenges} measure the same problem for groundwater models directly (see \cref{sec:rw_gwl}). Most of these studies use leave-one-out cross-validation, which retains close spatial neighbors in training and makes the task easier than realistic deployment; the spatial split design used here addresses this (\cref{sec:spatial_splits}).
+
+%-----------------------------------------------------------
+\section{Spatial Interpolation of Groundwater and Geostatistical Methods}
+\label{sec:rw_gwl_interp}
+%-----------------------------------------------------------
+
+Spatial interpolation of GWL has a long history in hydrogeology, mainly through geostatistical methods. Ordinary kriging treats GWL as a spatially correlated random field (one where the correlation between any two measurement locations depends on their distance) and estimates the covariance structure from the empirical variogram, a function describing how correlation decays with distance \citep{rasmussen2006gaussian}.
+Spatiotemporal extensions of kriging model GWL jointly over space and time. \citet{ruybal2019evaluation} show that spatiotemporal regression kriging outperforms ordinary spatial kriging for the sparsely sampled Arapahoe aquifer in Colorado: adding temporal correlation reduces prediction error at unmonitored times. \citet{kazemi2021evaluation} apply spatiotemporal regression kriging to the Harvey River Catchment in Western Australia and assess accuracy via leave-one-out cross-validation. \citet{junezferreira2023assessment} do the same for the Basin of Mexico aquifer and confirm that spatiotemporal interpolation yields smaller errors than independent spatial snapshots. In all three cases, leave-one-out cross-validation retains close spatial neighbors in training, which makes the task easier than it would be in a realistic deployment scenario \citep{roberts2017cross} (see also \cref{sec:rw_ungauged}).
+
+Several recent studies combine machine learning with geostatistical methods. \citet{zowam2024} combine ML point predictions with empirical Bayesian kriging (a variant of kriging that estimates the variogram locally around each prediction point rather than fitting one global model) for predicting GWL changes across Arizona. Like this thesis, they evaluate on well locations that are excluded from training, rather than using the same locations at different time steps. The spatial test set is small (7 out of 59 wells), however, which limits how reliable the performance estimates are.
+
+\citet{pradhan2024modeling} combine a deep neural network with a GP for GWL interpolation in California's Central Valley in an architecture similar to this thesis: the network learns a feature representation from lithological and hydrogeological inputs, and the GP interpolates in that space. Their comparison of a coordinate-only GP against a feature-augmented GP mirrors the feature ablation in this thesis. The main difference is that Pradhan et al.\ estimate fixed parameters of a simple trend model from past observations, without a temporal forecasting component. This thesis adds a GRU as the first stage and interpolates GRU predictions rather than observations.
+
+GP regression is a Bayesian framework for spatial interpolation that gives both predictions and uncertainty estimates \citep{rasmussen2006gaussian}. A GP with a stationary kernel is mathematically equivalent to ordinary kriging: both estimate a spatial field using a covariance function that depends only on distance \citep{rasmussen2006gaussian}. The Matérn family of kernels is the standard choice in spatial statistics because it directly controls how smooth the predicted surface is; the Matérn-$\tfrac{3}{2}$ kernel assumes once-differentiable processes and is common for physical spatial fields \citep{rasmussen2006gaussian}. GP inputs can also include spatial features beyond coordinates (covariate-augmented kriging), and which features help is not obvious in advance.
+
+%-----------------------------------------------------------
+\section{Joint Spatiotemporal Models and Neural Processes}
+\label{sec:rw_joint}
+%-----------------------------------------------------------
+
+Several models learn spatial and temporal patterns jointly in a single stage. This thesis also evaluates a jointly trained spatiotemporal model alongside the two-stage design.
+
+Deep kernel learning \citep{wilson2016deep} replaces the fixed GP kernel with a neural network that maps inputs to a learned feature space, which gives the GP more flexibility to capture complex spatial patterns.
+
+Neural Processes \citep{garnelo2018neural, dubois2020npf} encode a set of observations into a latent representation and predict at arbitrary query locations; in effect, they learn a distribution over functions and can generalize to new contexts without retraining. Convolutional Conditional Neural Processes \citep{gordon2020convolutional} extend this to spatial fields. These are a direct alternative to the GRU-GP pipeline used here, but not yet applied to multi-well groundwater settings.
+
+The jointly trained spatiotemporal model in this thesis passes GRU and GP gradients through a combined loss simultaneously; results are discussed in \cref{ch:results}.
+
+%-----------------------------------------------------------
+\section{Uncertainty Quantification and Ensemble Methods}
+\label{sec:rw_uq}
+%-----------------------------------------------------------
+
+Uncertainty estimates matter in hydrology because forecasts influence decisions about water management and drought response. GP regression gives uncertainty estimates alongside predictions, which is useful here. \citet{willard2023time} list it among the methods for uncertainty at unmonitored locations. The GP in this thesis serves both roles: spatial interpolation and uncertainty estimation. But GP uncertainty can be poorly calibrated when predicting far from training data, especially if the kernel is fitted on data with a different spatial structure than the test set.
+
+%-----------------------------------------------------------
+\section{Reproducibility and Variance in Deep Learning}
+\label{sec:rw_repro}
+%-----------------------------------------------------------
+
+Deep learning results depend on random seed choice, which is a known issue for benchmark reliability. \citet{bouthillier2021accounting} show that variance from data splits, hyperparameter choices, and weight initialization can each be as large as the performance differences between models; data splits and HPO are the two largest sources, while weight initialization matters less. \citet{willard2025ensembles} reach the same conclusion in hydrology: for stream temperature prediction, meaningful ensemble diversity comes from combining different architectures and hyperparameter configurations, not from varying random weight initialization. In spatial interpolation, which wells are in the test set adds variance, as the multi-seed experiments in this thesis show.
+
+\citeauthor{bouthillier2021accounting}'s main recommendation is to evaluate multiple random data splits, not just multiple random initializations. The multi-seed analysis in this thesis does exactly this: what changes across seeds is the spatial split: both the test set and training set composition change, and consequently so do the learned model weights. Without the $\sim$90$\times$ speedup of the GRU over TFT, this would not have been feasible.
+
+
+%-----------------------------------------------------------
+\section{The Direct Predecessor: Kunz et al.\ (2025)}
+\label{sec:rw_kunz}
+%-----------------------------------------------------------
+
+The work most directly related to this thesis is \citet{kunz2025}, whose approach this thesis partially replicates and extends on the Brandenburg dataset. \citeauthor{kunz2025} train deep learning models for seasonal GWL prediction across thousands of monitoring wells in multiple German federal states, including Brandenburg, using a single shared model. They evaluate two architectures: the Temporal Fusion Transformer \citep{lim2021temporal} and N-HiTS \citep{challu2023nhits}, both using static hydrogeological features as inputs. On the Brandenburg dataset, their TFT achieves a median per-well RMSE of 0.093\,m (S.~Kunz, personal communication, 2025).
+
+The GRU is preferred over N-HiTS for its performance on long time series and its native support for long look-back windows.
+
+\citeauthor{kunz2025} evaluate on held-out future time periods: all 5{,}288 wells contribute to training, and the test set consists of later observations at those same wells. No well is withheld spatially. Their reported RMSE therefore reflects temporal forecast accuracy at already-monitored locations. This thesis instead predicts at wells with no observations at all, which is a harder problem.
+
+%-----------------------------------------------------------
+\section{Chapter Summary}
+%-----------------------------------------------------------
+
+This chapter reviews prior work across six areas: deep learning for hydrology, groundwater level prediction, ungauged-site generalization, GP spatial interpolation, joint spatiotemporal models, and evaluation design. No existing work combines a global temporal forecasting model with a GP spatial interpolation layer for groundwater, evaluated under spatial test splits at genuinely unmonitored locations. Key prior results motivating design choices include the finding that static attributes alone are insufficient for spatial generalization to unmonitored locations \citep{heudorfer2024challenges}, which motivates the GP interpolation stage, and that spatial test split composition drives evaluation variance more than weight initialization \citep{bouthillier2021accounting}. \Cref{ch:data} describes the Brandenburg dataset used to test this approach.

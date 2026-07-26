@@ -1,0 +1,177 @@
+% ============================================================
+%  GIST: Groundwater Interpolation in Space and Time
+%  Master Thesis — BHT Berlin, Data Science
+%  Robert Wienröder, 2026
+% ============================================================
+\documentclass[
+  a4paper,
+  oneside,
+  11pt,
+  parskip=half,
+  headings=normal,
+]{scrreprt}
+
+% --- Encoding & Language ---
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+
+% --- Page Layout ---
+\usepackage[
+  top=2.5cm, bottom=2.5cm,
+  left=2.5cm, right=2.5cm
+]{geometry}
+
+% --- Line Spacing ---
+\usepackage{setspace}
+\setstretch{1.25}
+
+% --- Font ---
+\usepackage{lmodern}
+
+% --- Math ---
+\usepackage{amsmath, amssymb, mathtools}
+
+% --- Graphics ---
+\usepackage{graphicx}
+\usepackage{caption}
+\usepackage{subcaption}
+\graphicspath{{figures/}}
+
+% --- Tables ---
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{multirow}
+
+% --- Units ---
+\usepackage{siunitx}
+\sisetup{detect-all, locale=US}
+
+% --- Code Listings ---
+\usepackage{listings}
+\usepackage{scrhack}
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  numbers=left,
+  numberstyle=\tiny,
+}
+
+% --- Colors (load before tikz/tcolorbox to avoid option clash) ---
+\usepackage[dvipsnames]{xcolor}
+\definecolor{citeblue}{RGB}{0,90,130}
+
+% --- TikZ (for pipeline diagram) ---
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, calc}
+
+% --- Bibliography ---
+\usepackage[
+  backend=biber,
+  style=authoryear,
+  natbib=true,
+  maxcitenames=2,
+  maxbibnames=99,
+  doi=true,
+  url=true,
+  isbn=false,
+]{biblatex}
+\addbibresource{bib/references.bib}
+\AtEveryBibitem{\clearfield{urlyear}\clearfield{urlmonth}\clearfield{urlday}}
+
+% --- Quotes ---
+\usepackage{csquotes}
+
+% --- Hyperlinks (load last) ---
+\usepackage[
+  colorlinks=true,
+  linkcolor=black,
+  citecolor=citeblue,
+  urlcolor=MidnightBlue,
+]{hyperref}
+\usepackage[capitalise, noabbrev]{cleveref}
+
+% --- Algorithms / Pseudocode ---
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+% --- Float placement ---
+\usepackage{float}
+
+% --- Misc ---
+\usepackage{microtype}
+\usepackage{enumitem}
+\usepackage[most]{tcolorbox}
+\tcbset{
+  researchquestion/.style={
+    colback=gray!8,
+    colframe=gray!45,
+    boxrule=0.5pt,
+    arc=2pt,
+    left=8pt, right=8pt,
+    top=6pt, bottom=6pt,
+    before skip=\baselineskip,
+    after skip=\baselineskip,
+  }
+}
+
+% --- Placeholder commands ---
+\newcommand{\todo}[1]{{\color{red}\textbf{[#1]}}}
+
+% ============================================================
+%  Title Page Info
+% ============================================================
+\newcommand{\thesistitle}{Spatio-Temporal Interpolations \\for Global Groundwater Forecasts}
+\newcommand{\theauthor}{Robert Wienr{\"o}der}
+\newcommand{\thematrikel}{942815}
+\newcommand{\thesupervisor}{\textbf{Prof.\ Dr.\ rer.\ nat.\ Felix Bie\ss{}mann}}
+\newcommand{\thesecondreviewer}{\textbf{Prof. Dr. Patrick Erdelt}}
+\newcommand{\thedate}{May 27, 2026}
+
+% ============================================================
+\begin{document}
+
+\hypersetup{pageanchor=false}
+\include{chapters/00_titlepage}
+\hypersetup{pageanchor=true}
+
+\pagenumbering{roman}
+
+\include{chapters/00_abstract}
+
+% \include{chapters/00_summary}
+
+\include{chapters/00_acknowledgments}
+
+\tableofcontents
+
+\cleardoublepage
+\pagenumbering{arabic}
+
+% Chapter 1 — Introduction
+\include{chapters/01_introduction}
+% Chapter 2 — Related Work
+\include{chapters/02_related_work}
+% Chapter 3 — Data
+\include{chapters/03_data}
+% Chapter 4 — Methods (Technical Background + System Design + Implementation)
+\include{chapters/04_methods}
+% Chapter 5 — Results
+\include{chapters/05_results}
+% Chapter 6 — Discussion
+\include{chapters/06_discussion}
+% Chapter 7 — Conclusion
+\include{chapters/07_conclusion}
+
+% ---- Bibliography ----
+\printbibliography
+
+% ---- Appendix ----
+\appendix
+\include{appendix/A_hyperparameters}
+\include{appendix/B_ablations}
+\include{appendix/C_features}
+
+\end{document}

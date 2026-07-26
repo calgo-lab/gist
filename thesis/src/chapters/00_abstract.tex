@@ -1,0 +1,23 @@
+\chapter*{Abstract}
+\addcontentsline{toc}{chapter}{Abstract}
+
+Groundwater monitoring networks cover only a fraction of the locations where predictions are needed, and most forecasting systems work only where wells already exist.
+Forecasting groundwater levels (GWL) at existing monitoring wells improves considerably with
+deep learning. However, predicting GWL at entirely unmonitored locations without any
+historical observations is more difficult and receives less attention. Most
+existing approaches do not test against large, fixed test sets of spatially separated
+wells and therefore cannot "forecast anywhere".
+
+This thesis introduces GIST (\textbf{G}roundwater \textbf{I}nterpolation in \textbf{S}pace
+and \textbf{T}ime), a spatiotemporal pipeline combining a temporal and a spatial modeling component,
+covering 1{,}040 monitoring wells across Brandenburg, Germany.
+A Gated Recurrent Unit (GRU) produces temporal forecasts at monitored wells, which a Gaussian Process
+(GP) then interpolates to locations excluded from training to simulate unmonitored locations.
+
+The GRU matches the performance of a much larger Temporal Fusion Transformer baseline while
+training roughly 90 times faster, which makes the full experimental setup feasible. One of the main findings is that temporal forecast quality is not the bottleneck
+in the spatiotemporal pipeline: interpolating the actual observations at training wells instead
+of the temporal predictions does not improve the error of the full spatiotemporal pipeline. The limiting factor is therefore spatial generalization, not temporal forecast quality. Distance to the nearest training 
+well is the strongest predictor of per-well error. A jointly trained model combining GRU and GP with a combined loss does not improve overall performance but specifically reduces error for the most spatially isolated wells,
+which are the hardest cases for a ``forecast anywhere'' system.
+Together, these results demonstrate the feasibility of spatiotemporal GWL forecasting at unmonitored locations and show that further progress mainly depends on improving spatial generalization.

@@ -1,0 +1,530 @@
+% !TEX root = ../main.tex
+\chapter{Extended Ablation Results}
+\label{app:ablations}
+
+\section{GP Feature Ablation Results}
+\label{app:interp_baseline_ablation}
+
+All 30 configurations sorted by nRMSE\textsubscript{pw}.
+The selected configuration (hydrogeological zone only) is marked with a star.
+
+\begin{longtable}{p{0.56\linewidth}rrr}
+\caption{GP feature ablation: all 30 configurations sorted by
+  nRMSE\textsubscript{pw} (median per well, mean over 10 split seeds, 1 GP seed; random 90/10 split;
+  coordinate-only baseline nRMSE\textsubscript{pw}\,=\,5.077,
+  RMSE\textsubscript{pw}\,=\,1.130\,m)}
+\label{tab:gp_ablation_full}\\
+\toprule
+\textbf{Feature configuration} & \textbf{nRMSE\textsubscript{pw}} &
+  \textbf{$\Delta$ nRMSE} & \textbf{RMSE\textsubscript{pw} (m)} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Feature configuration} & \textbf{nRMSE\textsubscript{pw}} &
+  \textbf{$\Delta$ nRMSE} & \textbf{RMSE\textsubscript{pw} (m)} \\
+\midrule
+\endhead
+\midrule
+\multicolumn{4}{r}{\footnotesize\itshape (continued on next page)}\\
+\endfoot
+\bottomrule
+\endlastfoot
+\textbf{Hydrogeological zone only} $\star$ & \textbf{4.444} & $-$0.633 & \textbf{1.052} \\
+Screen top depth only                      & 4.883 & $-$0.194 & 1.070 \\
+Screen bottom depth only                   & 4.889 & $-$0.188 & 1.075 \\
+Both screen depths                         & 4.906 & $-$0.170 & 1.072 \\
+Confinement only                           & 5.017 & $-$0.060 & 1.148 \\
+\textit{Spatial coordinates only (baseline)} & 5.077 & ---    & 1.130 \\
+Residence time + hydrogeological zone      & 5.118 & $+$0.041 & 1.198 \\
+GWL class only                             & 5.155 & $+$0.078 & 1.256 \\
+Hydrogeological zone + confinement         & 5.207 & $+$0.130 & 1.153 \\
+52-week precipitation lag only             & 5.392 & $+$0.316 & 1.267 \\
+Residence time only                        & 5.437 & $+$0.361 & 1.261 \\
+Residence time + confinement               & 5.481 & $+$0.404 & 1.315 \\
+ACF class only                             & 5.735 & $+$0.658 & 1.332 \\
+Residence time + both screen depths        & 5.794 & $+$0.717 & 1.444 \\
+Residence time + screen bottom             & 5.800 & $+$0.723 & 1.442 \\
+Residence time + screen top                & 5.800 & $+$0.723 & 1.453 \\
+Residence time + hydro-zone + confinement  & 5.863 & $+$0.786 & 1.357 \\
+52-week precipitation cross-corr only      & 6.040 & $+$0.963 & 1.473 \\
+1-week precipitation lag only              & 6.126 & $+$1.049 & 1.278 \\
+Res.\ time + hydro-zone + confinement + screen bottom  & 6.193 & $+$1.116 & 1.454 \\
+Res.\ time + hydro-zone + confinement + both screen depths & 6.226 & $+$1.149 & 1.430 \\
+Res.\ time + hydro-zone + confinement + screen top     & 6.267 & $+$1.190 & 1.427 \\
+Res.\ time + hydro-zone + confinement + GWL class (one-hot) & 6.443 & $+$1.366 & 1.586 \\
+Res.\ time + hydro-zone + confinement + GWL class (cont.) & 6.598 & $+$1.521 & 1.595 \\
+Res.\ time + hydro-zone + confinement + 52w precip lag    & 6.791 & $+$1.714 & 1.616 \\
+Residence time + ACF class                 & 6.800 & $+$1.723 & 1.624 \\
+Res.\ time + hydro-zone + confinement + 52w precip xcorr  & 6.901 & $+$1.824 & 1.726 \\
+Res.\ time + hydro-zone + confinement + ACF class         & 6.903 & $+$1.826 & 1.643 \\
+Res.\ time + hydro-zone + confinement + 1w precip lag     & 6.950 & $+$1.873 & 1.548 \\
+Res.\ time + hydro-zone + confinement + all precip        & 7.350 & $+$2.273 & 1.815 \\
+\end{longtable}
+
+% ============================================================
+\section{Spatial Split Comparison}
+\label{app:split_comparison}
+
+\begin{table}[htbp]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lrrrrr}
+\toprule
+\textbf{Metric}
+  & \textbf{Dense-area} & \textbf{Cluster-stratified} & \textbf{Sparse-area}
+  & \textbf{Random 90/10}$^\star$ & \textbf{Random 80/20} \\
+\midrule
+Test wells & 104 & 98 & 104 & 104 & 208 \\
+Seeds      & 10  & 10 & 10  & 40  & 10  \\[3pt]
+avg RMSE\textsubscript{pw} (m)
+  & $0.678 \pm 0.089$ & $1.215 \pm 0.202$ & $5.102 \pm 0.690$
+  & $\mathbf{1.119 \pm 0.208}$ & $1.240 \pm 0.154$ \\
+h\,=\,16 RMSE\textsubscript{pw} (m)
+  & $0.681 \pm 0.109$ & $1.164 \pm 0.220$ & $5.409 \pm 0.803$
+  & $\mathbf{1.082 \pm 0.193}$ & $1.200 \pm 0.142$ \\
+avg nRMSE\textsubscript{pw}
+  & $2.900 \pm 0.379$ & $5.123 \pm 0.973$ & $22.269 \pm 3.671$
+  & $\mathbf{4.580 \pm 0.909}$ & $5.084 \pm 0.586$ \\
+h\,=\,16 nRMSE\textsubscript{pw}
+  & $2.755 \pm 0.329$ & $4.749 \pm 0.964$ & $23.064 \pm 5.054$
+  & $\mathbf{4.399 \pm 0.988}$ & $4.798 \pm 0.541$ \\
+avg NSE\textsubscript{pw}
+  & $-13.5 \pm 3.2$ & $-42.8 \pm 18.1$ & $-878.9 \pm 262.1$
+  & $\mathbf{-38.4 \pm 16.9}$ & $-45.4 \pm 14.1$ \\
+\bottomrule
+\multicolumn{6}{l}{\footnotesize $\star$ Primary evaluation (40 seeds, hydrogeological zone GP features). All other rows: GRU seed 40, GP seed 1.} \\
+\end{tabular}}
+\caption{Two-stage pipeline across split strategies, f\,=\,0.90}
+\label{tab:split_comparison}
+\end{table}
+
+% ============================================================
+\clearpage
+\section{Additional Tables}
+\label{app:additional_tables}
+
+\begin{table}[htbp]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lccc}
+\toprule
+\textbf{Split seed} & \textbf{Interp.\ Baseline RMSE\textsubscript{pw} (m)} & \textbf{Two-Stage RMSE\textsubscript{pw} (m)} & \textbf{Gap (m)} \\
+\midrule
+ss42 & 1.127 & 1.122 & $-0.005$ \\
+ss43 & 1.021 & 0.998 & $-0.023$ \\
+ss44 & 1.162 & 1.126 & $-0.036$ \\
+ss45 & 0.974 & 1.014 & $+0.039$ \\
+ss46 & 0.818 & 0.827 & $+0.009$ \\
+ss47 & 1.029 & 1.048 & $+0.019$ \\
+ss48 & 1.045 & 1.050 & $+0.005$ \\
+ss49 & 1.420 & 1.380 & $-0.040$ \\
+ss50 & 1.001 & 1.063 & $+0.062$ \\
+ss51 & 0.842 & 0.808 & $-0.034$ \\
+ss52 & 1.138 & 1.159 & $+0.021$ \\
+ss53 & 1.302 & 1.338 & $+0.036$ \\
+ss54 & 1.212 & 1.223 & $+0.011$ \\
+ss55 & 1.124 & 1.118 & $-0.007$ \\
+ss56 & 0.872 & 0.905 & $+0.033$ \\
+ss57 & 0.913 & 0.918 & $+0.006$ \\
+ss58 & 1.025 & 1.046 & $+0.020$ \\
+ss59 & 1.314 & 1.301 & $-0.013$ \\
+ss60 & 1.375 & 1.366 & $-0.008$ \\
+ss61 & 1.120 & 1.123 & $+0.004$ \\
+ss62 & 0.934 & 0.896 & $-0.038$ \\
+ss63 & 1.385 & 1.352 & $-0.032$ \\
+ss64 & 1.060 & 1.068 & $+0.008$ \\
+ss65 & 0.896 & 0.909 & $+0.013$ \\
+ss66 & 1.224 & 1.270 & $+0.046$ \\
+ss67 & 0.751 & 0.751 & $+0.000$ \\
+ss68 & 1.131 & 1.136 & $+0.005$ \\
+ss69 & 1.060 & 1.050 & $-0.011$ \\
+ss70 & 1.268 & 1.281 & $+0.013$ \\
+ss71 & 1.182 & 1.191 & $+0.010$ \\
+ss72 & 0.975 & 0.934 & $-0.041$ \\
+ss73 & 1.601 & 1.617 & $+0.017$ \\
+ss74 & 0.890 & 0.937 & $+0.047$ \\
+ss75 & 1.228 & 1.102 & $-0.125$ \\
+ss76 & 1.195 & 1.213 & $+0.017$ \\
+ss77 & 0.827 & 0.847 & $+0.020$ \\
+ss78 & 1.020 & 0.999 & $-0.021$ \\
+ss79 & 1.593 & 1.597 & $+0.005$ \\
+ss80 & 1.478 & 1.518 & $+0.040$ \\
+ss81 & 1.096 & 1.140 & $+0.045$ \\
+\midrule
+Mean & 1.116 & 1.119 & $+0.003$ \\
+Std  & 0.208 & 0.208 & 0.033 \\
+\bottomrule
+\end{tabular}}
+\caption{Per-seed interp.\ baseline vs.\ two-stage RMSE\textsubscript{pw}, rand 90/10}
+\label{tab:per_seed_trueobs_f90}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{Split seed}
+  & \textbf{avg RMSE\textsubscript{pw} (m)} & \textbf{h\,=\,16 RMSE\textsubscript{pw} (m)}
+  & \textbf{avg NSE\textsubscript{pw}} & \textbf{h\,=\,16 NSE\textsubscript{pw}} \\
+\midrule
+ss42 & 1.122 & 1.128 & $-31.5$ & $-23.0$ \\
+ss43 & 0.998 & 0.974 & $-21.9$ & $-19.7$ \\
+ss44 & 1.126 & 1.057 & $-44.1$ & $-41.1$ \\
+ss45 & 1.014 & 1.117 & $-40.7$ & $-23.5$ \\
+ss46 & 0.827 & 0.912 & $-33.7$ & $-23.4$ \\
+ss47 & 1.048 & 1.065 & $-46.4$ & $-30.6$ \\
+ss48 & 1.050 & 0.918 & $-31.5$ & $-16.8$ \\
+ss49 & 1.380 & 1.251 & $-38.6$ & $-32.5$ \\
+ss50 & 1.063 & 1.000 & $-31.2$ & $-32.7$ \\
+ss51 & 0.808 & 0.846 & $-29.7$ & $-29.2$ \\
+ss52 & 1.159 & 1.129 & $-45.7$ & $-38.6$ \\
+ss53 & 1.338 & 1.340 & $-48.6$ & $-47.4$ \\
+ss54 & 1.223 & 1.071 & $-25.5$ & $-18.6$ \\
+ss55 & 1.118 & 1.157 & $-34.4$ & $-42.2$ \\
+ss56 & 0.905 & 0.887 & $-15.2$ & $-13.5$ \\
+ss57 & 0.918 & 0.858 & $-22.1$ & $-18.1$ \\
+ss58 & 1.046 & 1.053 & $-33.5$ & $-33.1$ \\
+ss59 & 1.301 & 1.089 & $-30.0$ & $-31.5$ \\
+ss60 & 1.366 & 1.240 & $-42.8$ & $-30.9$ \\
+ss61 & 1.123 & 1.223 & $-32.8$ & $-34.2$ \\
+ss62 & 0.896 & 0.828 & $-19.2$ & $-15.8$ \\
+ss63 & 1.352 & 1.313 & $-72.2$ & $-54.3$ \\
+ss64 & 1.068 & 1.101 & $-40.0$ & $-27.5$ \\
+ss65 & 0.909 & 0.902 & $-21.0$ & $-18.5$ \\
+ss66 & 1.270 & 1.186 & $-43.1$ & $-35.8$ \\
+ss67 & 0.751 & 0.742 & $-18.3$ & $-13.9$ \\
+ss68 & 1.136 & 1.153 & $-31.4$ & $-24.5$ \\
+ss69 & 1.050 & 0.986 & $-27.2$ & $-20.5$ \\
+ss70 & 1.281 & 1.204 & $-49.9$ & $-48.0$ \\
+ss71 & 1.191 & 1.202 & $-50.3$ & $-42.7$ \\
+ss72 & 0.934 & 0.912 & $-25.6$ & $-26.8$ \\
+ss73 & 1.617 & 1.496 & $-72.7$ & $-73.4$ \\
+ss74 & 0.937 & 0.790 & $-26.6$ & $-21.2$ \\
+ss75 & 1.102 & 1.049 & $-52.4$ & $-43.3$ \\
+ss76 & 1.213 & 1.128 & $-32.3$ & $-24.1$ \\
+ss77 & 0.847 & 0.846 & $-32.6$ & $-30.0$ \\
+ss78 & 0.999 & 0.919 & $-21.1$ & $-18.8$ \\
+ss79 & 1.597 & 1.511 & $-75.6$ & $-62.7$ \\
+ss80 & 1.518 & 1.536 & $-92.6$ & $-92.3$ \\
+ss81 & 1.140 & 1.159 & $-50.2$ & $-41.2$ \\
+\midrule
+Mean & 1.119 & 1.082 & $-38.4$ & $-32.9$ \\
+Std  & 0.208 & 0.193 & 16.9    & 16.4    \\
+\bottomrule
+\end{tabular}}
+\caption{Two-stage pipeline per-seed metrics, rand 90/10}
+\label{tab:per_seed_two_stage}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{Split seed}
+  & \textbf{avg RMSE\textsubscript{pw} (m)} & \textbf{h\,=\,16 RMSE\textsubscript{pw} (m)}
+  & \textbf{avg NSE\textsubscript{pw}} & \textbf{h\,=\,16 NSE\textsubscript{pw}} \\
+\midrule
+ss42 & 1.127 & 1.101 & $-32.7$ & $-19.5$ \\
+ss43 & 1.021 & 1.008 & $-22.7$ & $-19.5$ \\
+ss44 & 1.162 & 1.049 & $-45.2$ & $-35.8$ \\
+ss45 & 0.974 & 1.135 & $-42.9$ & $-27.3$ \\
+ss46 & 0.818 & 0.883 & $-30.4$ & $-25.1$ \\
+ss47 & 1.029 & 1.008 & $-46.4$ & $-30.9$ \\
+ss48 & 1.045 & 0.892 & $-31.5$ & $-16.4$ \\
+ss49 & 1.420 & 1.248 & $-39.9$ & $-32.5$ \\
+ss50 & 1.001 & 0.967 & $-35.1$ & $-30.9$ \\
+ss51 & 0.842 & 0.875 & $-30.4$ & $-29.1$ \\
+ss52 & 1.138 & 1.136 & $-44.6$ & $-36.0$ \\
+ss53 & 1.302 & 1.317 & $-48.3$ & $-47.9$ \\
+ss54 & 1.212 & 1.099 & $-26.1$ & $-18.6$ \\
+ss55 & 1.124 & 1.148 & $-36.6$ & $-42.1$ \\
+ss56 & 0.872 & 0.860 & $-15.4$ & $-12.8$ \\
+ss57 & 0.913 & 0.852 & $-22.3$ & $-18.7$ \\
+ss58 & 1.025 & 1.041 & $-31.9$ & $-31.2$ \\
+ss59 & 1.314 & 1.092 & $-27.9$ & $-28.1$ \\
+ss60 & 1.375 & 1.244 & $-41.6$ & $-34.5$ \\
+ss61 & 1.120 & 1.209 & $-32.2$ & $-31.8$ \\
+ss62 & 0.934 & 0.853 & $-19.0$ & $-15.3$ \\
+ss63 & 1.385 & 1.358 & $-74.9$ & $-61.5$ \\
+ss64 & 1.060 & 1.085 & $-39.6$ & $-29.2$ \\
+ss65 & 0.896 & 0.865 & $-21.0$ & $-18.3$ \\
+ss66 & 1.224 & 1.210 & $-42.7$ & $-38.0$ \\
+ss67 & 0.751 & 0.734 & $-19.7$ & $-12.7$ \\
+ss68 & 1.131 & 1.170 & $-32.2$ & $-24.0$ \\
+ss69 & 1.060 & 1.008 & $-27.7$ & $-22.3$ \\
+ss70 & 1.268 & 1.184 & $-51.3$ & $-50.8$ \\
+ss71 & 1.182 & 1.145 & $-48.6$ & $-41.1$ \\
+ss72 & 0.975 & 0.968 & $-25.2$ & $-25.2$ \\
+ss73 & 1.601 & 1.514 & $-69.8$ & $-72.3$ \\
+ss74 & 0.890 & 0.825 & $-26.4$ & $-22.7$ \\
+ss75 & 1.228 & 1.128 & $-53.3$ & $-49.9$ \\
+ss76 & 1.195 & 1.125 & $-31.8$ & $-24.8$ \\
+ss77 & 0.827 & 0.841 & $-34.1$ & $-30.1$ \\
+ss78 & 1.020 & 0.893 & $-20.8$ & $-20.0$ \\
+ss79 & 1.593 & 1.476 & $-76.0$ & $-64.6$ \\
+ss80 & 1.478 & 1.511 & $-95.6$ & $-92.4$ \\
+ss81 & 1.096 & 1.084 & $-50.6$ & $-41.6$ \\
+\midrule
+Mean & 1.116 & 1.079 & $-38.6$ & $-33.1$ \\
+Std  & 0.208 & 0.191 & 17.1    & 16.9    \\
+\bottomrule
+\end{tabular}}
+\caption{True-observation interpolation baseline per-seed metrics, rand 90/10}
+\label{tab:per_seed_trueobs}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{Split seed}
+  & \textbf{avg RMSE\textsubscript{pw} (m)} & \textbf{h\,=\,16 RMSE\textsubscript{pw} (m)}
+  & \textbf{avg NSE\textsubscript{pw}} & \textbf{h\,=\,16 NSE\textsubscript{pw}} \\
+\midrule
+ss42 & 1.088 & 1.053 & $-35.0$ & $-32.9$ \\
+ss43 & 1.406 & 1.379 & $-41.4$ & $-39.2$ \\
+ss44 & 1.134 & 1.133 & $-48.7$ & $-38.7$ \\
+ss45 & 1.149 & 1.132 & $-36.6$ & $-30.8$ \\
+ss46 & 1.199 & 1.340 & $-46.6$ & $-52.5$ \\
+ss47 & 1.070 & 1.062 & $-41.8$ & $-31.8$ \\
+ss48 & 0.976 & 0.903 & $-27.3$ & $-25.9$ \\
+ss49 & 1.378 & 1.046 & $-65.4$ & $-42.4$ \\
+ss50 & 0.946 & 1.038 & $-24.4$ & $-21.6$ \\
+ss51 & 1.163 & 1.119 & $-42.2$ & $-43.8$ \\
+ss52 & 1.195 & 1.163 & $-53.8$ & $-43.3$ \\
+ss53 & 1.563 & 1.748 & $-80.8$ & $-81.0$ \\
+ss54 & 1.522 & 1.586 & $-56.4$ & $-53.3$ \\
+ss55 & 1.140 & 0.995 & $-30.5$ & $-26.7$ \\
+ss56 & 1.065 & 0.996 & $-16.9$ & $-13.9$ \\
+ss57 & 1.007 & 1.093 & $-26.9$ & $-21.1$ \\
+ss58 & 0.976 & 0.881 & $-21.3$ & $-17.9$ \\
+ss59 & 1.224 & 1.276 & $-42.0$ & $-43.2$ \\
+ss60 & 1.495 & 1.393 & $-49.9$ & $-45.4$ \\
+ss61 & 1.613 & 1.647 & $-47.0$ & $-51.0$ \\
+ss62 & 1.090 & 1.134 & $-45.5$ & $-39.6$ \\
+ss63 & 1.361 & 1.125 & $-61.6$ & $-43.0$ \\
+ss64 & 1.604 & 1.532 & $-82.6$ & $-73.9$ \\
+ss65 & 1.427 & 1.364 & $-69.1$ & $-59.8$ \\
+ss66 & 1.549 & 1.535 & $-44.6$ & $-40.5$ \\
+ss67 & 1.072 & 1.122 & $-28.8$ & $-30.3$ \\
+ss68 & 1.157 & 1.013 & $-35.2$ & $-26.5$ \\
+ss69 & 1.290 & 1.324 & $-51.7$ & $-43.7$ \\
+ss70 & 1.587 & 1.585 & $-61.3$ & $-52.8$ \\
+ss71 & 1.158 & 1.038 & $-42.9$ & $-39.0$ \\
+ss72 & 1.150 & 1.193 & $-50.0$ & $-48.7$ \\
+ss73 & 1.702 & 1.716 & $-100.3$ & $-86.3$ \\
+ss74 & 1.008 & 1.069 & $-33.1$ & $-21.4$ \\
+ss75 & 1.377 & 1.390 & $-86.0$ & $-77.6$ \\
+ss76 & 1.582 & 1.177 & $-60.6$ & $-37.2$ \\
+ss77 & 1.202 & 1.212 & $-47.0$ & $-47.1$ \\
+ss78 & 0.947 & 0.986 & $-30.1$ & $-25.8$ \\
+ss79 & 1.528 & 1.484 & $-67.6$ & $-57.5$ \\
+ss80 & 2.319 & 2.347 & $-218.8$ & $-205.2$ \\
+ss81 & 1.028 & 1.011 & $-32.7$ & $-30.5$ \\
+\midrule
+Mean & 1.286 & 1.259 & $-52.1$ & $-46.1$ \\
+Std  & 0.278 & 0.290 & 32.8    & 30.8 \\
+\bottomrule
+\end{tabular}}
+\caption{Jointly trained model per-seed metrics, rand 90/10}
+\label{tab:per_seed_joint}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Joint model $\lambda$ sweep (h256/l4, 1 GP seed)}
+\label{tab:lambda_sweep}
+\begin{tabular}{lrr}
+\toprule
+$\boldsymbol{\lambda}$ & \textbf{RMSE\textsubscript{pw} (m)} & \textbf{nRMSE\textsubscript{pw}} \\
+\midrule
+0.9    & 1.403 & 7.88 \\
+0.7    & 1.352 & 8.58 \\
+0.5    & 1.255 & 6.27 \\
+0.3    & 1.048 & 5.89 \\
+0.1    & 1.091 & 5.62 \\
+0.01   & 1.115 & 5.42 \\
+0.001  & 1.025 & 5.50 \\
+\textbf{0.0001} & \textbf{1.016} & \textbf{5.50} \\
+0.00001 & 1.348 & 7.22 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Joint model architecture sweep ($\lambda = 0.034$, 1 GP seed), h256/l4 selected}
+\label{tab:arch_sweep}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Arch} & \textbf{Hidden} & \textbf{Layers} & \textbf{RMSE\textsubscript{pw} (m)} & \textbf{nRMSE\textsubscript{pw}} \\
+\midrule
+\textbf{h256/l4} & 256 & 4 & \textbf{1.419} & \textbf{7.08} \\
+h128/l5          & 128 & 5 & 1.426          & 7.17 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lrr}
+\toprule
+\textbf{Metric} & \textbf{Two-Stage} & \textbf{Jointly Trained} \\
+\midrule
+\multicolumn{3}{l}{\textit{Per-well spatial metrics (mean $\pm$ std, 40 seeds)}} \\[2pt]
+h\,=\,16 RMSE\textsubscript{pw} (m)        & $1.082 \pm 0.193$ & $1.259 \pm 0.290$ \\
+avg RMSE\textsubscript{pw} (m)              & $1.119 \pm 0.208$ & $1.286 \pm 0.278$ \\
+avg nRMSE\textsubscript{pw}                 & $4.580 \pm 0.909$ & --- \\
+h\,=\,16 NSE\textsubscript{pw}              & $-32.9 \pm 16.4$  & $-46.1 \pm 30.8$ \\
+avg NSE\textsubscript{pw}                   & $-38.4 \pm 16.9$  & $-52.1 \pm 32.8$ \\
+NSE\textsubscript{pw} P10                   & $-3731 \pm 1858$  & $-3299 \pm 1871$ \\
+NSE\textsubscript{pw} P25                   & $-505 \pm 300$    & $-532 \pm 279$ \\
+NSE\textsubscript{pw} P75                   & $-3.83 \pm 1.93$  & $-6.49 \pm 4.12$ \\
+NSE\textsubscript{pw} P90                   & $-0.221 \pm 0.353$ & $-0.580 \pm 0.804$ \\
+RMSE\textsubscript{pw} P10 (m)              & $0.243 \pm 0.036$ & $0.268 \pm 0.051$ \\
+RMSE\textsubscript{pw} P25 (m)              & $0.440 \pm 0.071$ & $0.548 \pm 0.131$ \\
+RMSE\textsubscript{pw} P50 (m)              & $1.119 \pm 0.208$ & $1.286 \pm 0.278$ \\
+RMSE\textsubscript{pw} P75 (m)              & $3.497 \pm 0.740$ & $3.624 \pm 0.826$ \\
+RMSE\textsubscript{pw} P90 (m)              & $9.015 \pm 2.382$ & $8.871 \pm 1.974$ \\[3pt]
+\multicolumn{3}{l}{\textit{Uncertainty calibration}} \\[2pt]
+PICP-95                                     & $0.602 \pm 0.043$ & $0.629 \pm 0.055$ \\[3pt]
+\multicolumn{3}{l}{\textit{Global (pooled) metrics}} \\[2pt]
+Global RMSE (m)                             & $7.169 \pm 1.502$ & $6.243 \pm 1.258$ \\
+Global NSE                                  & $0.917 \pm 0.029$ & $0.937 \pm 0.022$ \\
+Global nRMSE                                & $0.219 \pm 0.056$ & $0.192 \pm 0.051$ \\
+Global MAE (m)                              & $3.437 \pm 0.635$ & $3.291 \pm 0.557$ \\
+Global KGE                                  & $0.909 \pm 0.045$ & $0.927 \pm 0.036$ \\
+Abs.\ error P95 (m)                         & $15.43 \pm 3.15$  & $13.60 \pm 3.06$ \\
+Abs.\ error P99 (m)                         & $30.82 \pm 9.99$  & $25.64 \pm 8.17$ \\
+\bottomrule
+\end{tabular}
+\caption{Two-stage vs.\ joint: full metrics, rand 90/10}
+\label{tab:cross_split_full_metrics}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lccc}
+\toprule
+\textbf{Split seed} & \textbf{Nearest-training-well dist.\ (km)} & \textbf{avg RMSE\textsubscript{pw} (m)} & \textbf{h\,=\,16 RMSE\textsubscript{pw} (m)} \\
+\midrule
+ss62 & 1.718 & 0.896 & 0.828 \\
+ss58 & 1.720 & 1.051 & 1.053 \\
+ss51 & 1.783 & 0.810 & 0.846 \\
+ss67 & 1.806 & 0.750 & 0.742 \\
+ss81 & 1.812 & 1.145 & 1.159 \\
+ss64 & 1.966 & 1.072 & 1.101 \\
+ss56 & 1.974 & 0.911 & 0.887 \\
+ss77 & 1.990 & 0.852 & 0.846 \\
+ss44 & 1.991 & 1.125 & 1.057 \\
+ss57 & 1.997 & 0.918 & 0.858 \\
+ss43 & 2.008 & 1.002 & 0.974 \\
+ss54 & 2.010 & 1.225 & 1.071 \\
+ss65 & 2.020 & 0.910 & 0.902 \\
+ss72 & 2.046 & 0.936 & 0.912 \\
+ss42 & 2.064 & 1.122 & 1.128 \\
+ss45 & 2.080 & 1.017 & 1.117 \\
+ss76 & 2.105 & 1.227 & 1.128 \\
+ss55 & 2.115 & 1.123 & 1.157 \\
+ss59 & 2.139 & 1.303 & 1.089 \\
+ss78 & 2.172 & 1.001 & 0.919 \\
+ss49 & 2.174 & 1.379 & 1.251 \\
+ss50 & 2.183 & 1.063 & 1.000 \\
+ss47 & 2.184 & 1.051 & 1.065 \\
+ss63 & 2.188 & 1.353 & 1.313 \\
+ss69 & 2.203 & 1.048 & 0.986 \\
+ss74 & 2.208 & 0.944 & 0.790 \\
+ss68 & 2.216 & 1.136 & 1.153 \\
+ss80 & 2.231 & 1.519 & 1.536 \\
+ss66 & 2.240 & 1.275 & 1.186 \\
+ss46 & 2.246 & 0.826 & 0.912 \\
+ss48 & 2.257 & 1.051 & 0.918 \\
+ss71 & 2.292 & 1.191 & 1.202 \\
+ss61 & 2.317 & 1.121 & 1.223 \\
+ss75 & 2.323 & 1.105 & 1.049 \\
+ss60 & 2.331 & 1.365 & 1.240 \\
+ss70 & 2.339 & 1.285 & 1.204 \\
+ss73 & 2.352 & 1.627 & 1.496 \\
+ss79 & 2.386 & 1.595 & 1.511 \\
+ss52 & 2.422 & 1.159 & 1.129 \\
+ss53 & 2.537 & 1.337 & 1.340 \\
+\midrule
+Spearman $\rho$ (dist.\ vs.\ avg RMSE\textsubscript{pw}) & \multicolumn{3}{c}{$0.603$ ($p < 0.001$)} \\
+Spearman $\rho$ (dist.\ vs.\ h\,=\,16 RMSE\textsubscript{pw}) & \multicolumn{3}{c}{$0.601$ ($p < 0.001$)} \\
+\bottomrule
+\multicolumn{4}{l}{\footnotesize $\rho$ computed from full-precision values; displayed distances are rounded to 3\,d.p. All RMSE\textsubscript{pw} values are medians over test wells.} \\
+\end{tabular}}
+\caption{Per-seed two-stage pipeline RMSE\textsubscript{pw} vs.\ median nearest-training-well distance (random 90/10, 40 seeds, sorted by nearest-training-well distance)}
+\label{tab:seed_distance}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{crrrrrr}
+\toprule
+\textbf{Decile} & \textbf{NTN range (km)} & \textbf{NTN median (km)} & \textbf{$n$ pairs}
+  & \textbf{Two-stage median RMSE\textsubscript{pw} (m)} & \textbf{Joint median RMSE\textsubscript{pw} (m)}
+  & \textbf{Two-stage wins (\%)} \\
+\midrule
+D1 (closest) & 0.01--0.61 & 0.394 & 422 & 0.675 & 1.098 & 66.8 \\
+D2           & 0.62--0.99 & 0.823 & 420 & 0.566 & 0.909 & 64.5 \\
+D3           & 1.00--1.36 & 1.220 & 411 & 0.699 & 0.771 & 60.3 \\
+D4           & 1.36--1.72 & 1.570 & 420 & 0.608 & 0.950 & 63.8 \\
+D5           & 1.73--2.25 & 2.043 & 414 & 0.725 & 0.860 & 51.4 \\
+D6           & 2.25--2.72 & 2.456 & 409 & 0.899 & 0.836 & 51.8 \\
+D7           & 2.72--3.36 & 3.036 & 420 & 1.481 & 1.534 & 51.7 \\
+D8           & 3.37--4.24 & 3.776 & 413 & 1.853 & 1.953 & 40.2 \\
+D9           & 4.24--5.45 & 4.677 & 418 & 2.406 & 2.550 & 45.7 \\
+D10 (farthest) & 5.45--21.4 & 6.809 & 413 & 5.369 & 4.261 & 31.7 \\
+\bottomrule
+\end{tabular}}
+\caption{Two-stage vs.\ jointly trained by NTN distance decile}
+\label{tab:decile_comparison}
+\end{table}
+
+
+\begin{table}[htbp]
+\centering
+\caption{Top 5 static features by permutation importance (run 0346, h256/l4, 5 repeats per
+feature). Delta is the mean increase in nRMSE\textsubscript{pw} relative to the baseline
+(0.0467). All 35 features have positive delta; only the five largest are shown.}
+\label{tab:perm_importance}
+\begin{tabular}{clrr}
+\toprule
+\textbf{Rank} & \textbf{Feature} & \textbf{$\Delta$ nRMSE\textsubscript{pw}} & \textbf{\% change} \\
+\midrule
+1 & Pardé seasonality coefficient        & $+0.0221$ & $+47.3\%$ \\
+2 & Water courses fraction               & $+0.0057$ & $+12.3\%$ \\
+3 & Topographic Wetness Index            & $+0.0049$ & $+10.5\%$ \\
+4 & Surface elevation                    & $+0.0048$ & $+10.2\%$ \\
+5 & Pastures fraction                    & $+0.0040$ & $+8.6\%$  \\
+\midrule
+--- & All remaining 30 features & $+0.001$--$+0.003$ & $+2$--$+7\%$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Dynamic covariate permutation importance (run 0346, h256/l4, 5 repeats per
+feature). Delta is the mean increase in nRMSE\textsubscript{pw} relative to the baseline
+(0.0467).}
+\label{tab:perm_importance_dynamic}
+\begin{tabular}{clrr}
+\toprule
+\textbf{Rank} & \textbf{Feature} & \textbf{$\Delta$ nRMSE\textsubscript{pw}} & \textbf{\% change} \\
+\midrule
+1 & Temperature (5\,km)          & $+0.0428$ & $+91.5\%$ \\
+2 & Precipitation (5\,km)        & $+0.0395$ & $+84.5\%$ \\
+3 & Calendar cosine encoding     & $+0.0187$ & $+40.0\%$ \\
+4 & Relative humidity (5\,km)   & $+0.0099$ & $+21.2\%$ \\
+5 & Calendar sine encoding       & $+0.0098$ & $+20.9\%$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+

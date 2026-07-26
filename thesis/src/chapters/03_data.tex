@@ -1,0 +1,238 @@
+% !TEX root = ../main.tex
+\chapter{Data}
+\label{ch:data}
+
+\section{The Brandenburg Groundwater Dataset}
+\label{sec:dataset}
+
+The Brandenburg State Office for the Environment (LfU) operates a dense groundwater-level
+monitoring infrastructure across the state. Its groundwater database contains more than
+16{,}000 monitoring wells in total, including inactive stations and third-party data, while
+the active state groundwater-level monitoring network comprises approximately 2{,}100 wells \citep{lfu2024styx}.
+From this broader network, we use a quality-filtered subset of
+1{,}040 wells with weekly GWL observations starting between 1951 and 2008 and ending in 2024. These
+wells are distributed across Brandenburg's full territory but naturally do not provide
+continuous values over the entire state's land area, which leaves most locations unmonitored.
+This leads directly to the spatial interpolation challenge that motivates this thesis.
+
+These 1{,}040 wells are a Brandenburg-only subset of the 5{,}288-well German dataset used
+by \citet{kunz2025}. \citeauthor{kunz2025} report above-average accuracy for Brandenburg specifically, 
+probably because porous lowland aquifers with clear seasonal dynamics are easier to model than the
+mix of aquifer types across Germany. (They did not publish Brandenburg-specific performance metrics but shared them with us directly; these
+are used as a reference in \cref{sec:gru_performance}, though the comparison is not exact
+since the validation-set normalization approach differs.) This is also why Brandenburg is a good
+choice for the spatial interpolation experiment: a strong temporal baseline would mean poor
+spatiotemporal results point to the interpolation stage rather than to forecast quality. The LfU
+recorded the data and made it available through the Federal Institute for Geosciences and
+Natural Resources (BGR); the dataset spans 1951--2024 with 2{,}142{,}687 total observations.
+
+\subsection{Target Variable}
+
+The target variable is the groundwater level (GWL) in metres above sea level (m~a.s.l.),
+measured weekly at each well. Only wells with consistent records starting 2008 or earlier
+and remaining active until mid 2024 are included, so every well in the dataset covers at least
+the final ~16.5 years of the observation period. \citet{kunz2025} applied gap imputation to the raw measurements before sharing the data: gaps
+of up to four weeks were linearly interpolated, and gaps of up to 52 weeks were filled with a
+Bayesian imputer (S.~Kunz, personal communication, 2025).
+
+\paragraph{Temporal coverage.}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.7\textwidth]{active_wells_per_week}
+  \caption{Number of active wells per week from 1951 to 2024; network reached 1{,}040 active wells by 2008}
+  \label{fig:active_wells_per_week}
+\end{figure}
+
+Many wells were built in the mid-1970s, likely due to a major monitoring expansion during the
+GDR (German Democratic Republic) era. \Cref{fig:active_wells_per_week} shows the growth of the
+active monitoring network over time, with all 1{,}040 wells remaining active until 2024.
+
+\paragraph{Spatial coverage.}
+
+The 1{,}040 wells are distributed across Brandenburg's approximately 29{,}654\,km² area, with
+denser coverage in the east and sparser coverage in several other parts of the state; their
+spatial distribution is shown in \cref{fig:mean_gwl_map}. Well coordinates are provided in
+the EPSG:25833 (ETRS89 / UTM Zone 33N) projected coordinate system.
+
+Because coverage is uneven, the distance from a test well to its nearest training neighbor varies
+widely across wells and across random split seeds. Wells in sparsely monitored parts of the state
+are generally harder to interpolate than wells close to a training neighbor.
+
+\section{Temporal and Spatial Variation}
+\label{sec:variation}
+
+One important characteristic of the dataset is the relative magnitudes of the temporal and spatial variation of GWL.
+
+\begin{itemize}
+  \item \textbf{Temporal variation per well:} The median within-well range of GWL is 1.57\,m,
+  with a maximum of 16.36\,m.
+  \item \textbf{Spatial variation per timestep:} The range of long-term per-well mean GWL across
+  all active wells is approximately 130\,m, which is roughly 83 times
+  larger than the median temporal variation per well.
+\end{itemize}
+
+This large ratio of spatial to temporal variance implies that spatial context (where
+a well is located) is more important than temporal dynamics (when we observe a measurement) in explaining
+GWL values.
+
+\Cref{fig:mean_gwl_map} shows the per-well mean GWL (m a.s.l.) averaged over the full
+2008--2024 observation period, which is the only period with 100\% coverage. The spatial 
+variation across the state is large: wells in
+low-lying areas in the north and east are close to sea level, while
+wells in the elevated areas of the southwest and south reach above 50\,m a.s.l. To interpolate 
+this spatial field to test well locations is the task of the GP in the second stage of the pipeline.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.85\textwidth]{mean_gwl_map}
+  \caption{Mean GWL per well (m a.s.l., averaged over 2008--2024) across all 1{,}040 monitoring
+  wells in Brandenburg; the hole in the middle marks Berlin, which is not part of the state. The
+  color scale is clipped at the 2nd and 98th percentiles (1.3\,m and 93.6\,m) to prevent extreme
+  wells from compressing the color range; the actual range spans 0.3\,m to 130.3\,m.}
+  \label{fig:mean_gwl_map}
+\end{figure}
+
+\Cref{fig:gwl_timeseries} shows observed GWL time series at three representative wells, one
+from each hydrogeological zone (recharge, transit, discharge). Each well is shown over a
+three-year window from the test period for direct comparison. Seasonal cycles are
+visible in all three, but the amplitude and mean level differ across zones.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\textwidth]{gwl_timeseries_hydroraum}
+  \caption{GWL time series at three representative wells, one per hydrogeological zone}
+  \label{fig:gwl_timeseries}
+\end{figure}
+
+
+\section{Features}
+\label{sec:features}
+
+Each well has dynamic meteorological features and static hydrogeological features.
+
+\subsection{Dynamic Covariates}
+
+Meteorological dynamic features are taken from HYRAS~5.0 \citep{razafimaharo2020}, a
+gridded meteorological dataset produced by the German Weather Service (Deutscher
+Wetterdienst, DWD). HYRAS~5.0 covers Germany with high-resolution meteorological grids. Daily
+values are aggregated to weekly resolution. Meteorological values for each monitoring well are taken from the preprocessed dataset provided
+by \citet{kunz2025}, aggregated within a 5\,km buffer as a weighted average across intersecting
+grid pixels. The 5\,km resolution matches that of operational DWD weather forecasts, which allows
+the pipeline to use forecast data in real-world deployment. The three HYRAS meteorological
+variables together with two calendar encodings give five dynamic features in total. The
+variables are:
+
+\begin{enumerate}
+  \item \textbf{Temperature} (°C) --- weekly mean of air temperature in 2\,m altitude
+  \item \textbf{Relative humidity} (\%) --- weekly mean
+  \item \textbf{Precipitation} (mm/week) --- accumulated weekly precipitation
+  \item \textbf{Day-of-year (sine)} --- cyclic encoding $\sin(2\pi\,\text{DOY}/365.25)$
+  \item \textbf{Day-of-year (cosine)} --- cyclic encoding $\cos(2\pi\,\text{DOY}/365.25)$
+\end{enumerate}
+
+The sine and cosine encoding lets the model pick up seasonal patterns and avoids jumps
+when the year changes from December to January.
+
+\subsection{Static Features}
+\label{sec:static_features}
+
+The dataset contains 40 static hydrogeological features per well, of which 35 are used as GRU inputs; 3 of those (the one-hot encoding of hydrogeological zone into recharge, transit, and discharge categories) are also used as GP spatial inputs. The remaining 5 features are available in the dataset but are not primary model inputs. Complete feature definitions, column names, and model assignments are in \cref{app:features}.
+
+Three features are highlighted here because they appear prominently in the results.
+
+\textbf{Hydrogeological zone} (\texttt{hydroraum}) classifies each well as sitting in a recharge zone (where rain infiltrates into the ground), a discharge zone (where groundwater flows out near streams), or a transit zone in between. Wells in different zones behave differently even under the same weather conditions (3 categories; 109, 528, and 403 wells respectively; \cref{fig:hydroraum_dist}). The GP feature ablation (\cref{sec:gp_ablation}) identifies this as the single most informative static covariate for spatial interpolation.
+
+\textbf{Aquifer confinement} (\texttt{gw\_gespannt\_bin}) records whether the aquifer is confined or unconfined; 319 confined and 721 unconfined wells (\cref{fig:aquifer_dist}).
+
+\textbf{Groundwater residence time} (\texttt{siwa\_verweilzeit\_j}) records how long water typically stays underground before surfacing again, in years (categories: 0, 1, 3, 10, 30, or 50; 43 wells with missing values; \cref{fig:siwa_dist}).
+
+\begin{figure}[htbp]
+  \centering
+  \begin{minipage}[t]{0.47\textwidth}
+    \includegraphics[width=\textwidth]{hydroraum_dist}
+    \caption{Hydrogeological zone distribution across the 1{,}040 monitoring wells}
+    \label{fig:hydroraum_dist}
+  \end{minipage}
+  \hfill
+  \begin{minipage}[t]{0.47\textwidth}
+    \includegraphics[width=\textwidth]{aquifer_dist}
+    \caption{Aquifer confinement distribution across the 1{,}040 monitoring wells}
+    \label{fig:aquifer_dist}
+  \end{minipage}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.65\textwidth]{siwa_dist}
+  \caption{Groundwater residence time distribution}
+  \label{fig:siwa_dist}
+\end{figure}
+
+\section{Data Preprocessing}
+\label{sec:preprocessing}
+
+The following preprocessing steps are applied, with steps 1--3 performed by \citet{kunz2025} and steps 4--5 applied in this work:
+
+\begin{enumerate}
+  \item \textbf{Temporal alignment:} All time series are resampled to ISO-week granularity
+  (Monday-start weeks).
+  \item \textbf{Gap imputation:} Gaps of up to 4 weeks are linearly interpolated; gaps of up to
+  52 weeks are filled with a Bayesian imputer.
+  \item \textbf{Well selection:} Only wells with consistent GWL time series starting no later
+  than 2008 and having continuous values until 2024 (after the imputations in step\,2) are included.
+  \item \textbf{GWL normalization:} GWL values are z-scored per well (zero mean and
+  unit variance), using the mean and standard deviation computed on the training portion of
+  each well's time series. This removes each well's individual long-term mean level, so the
+  temporal model learns dynamics (deviations from the mean) rather than absolute levels. See
+  \cref{sec:variation} for the motivation.
+  \item \textbf{Feature normalization:} Continuous static and dynamic covariates (meteorological
+  variables and static features) are standardized per feature, again using statistics computed 
+  on the training set only.
+\end{enumerate}
+
+\subsection{Co-located Well Handling}
+\label{sec:deduplication}
+
+Several wells in the dataset share essentially
+identical UTM coordinates (EPSG:25833) with at least one other well. This is the case at monitoring 
+sites where multiple boreholes or screened intervals were installed at the same surface point, 
+which is a common practice at sites requiring monitoring of different aquifer layers simultaneously.
+
+This issue becomes clear during initial spatial evaluation experiments: the spatial GP
+pipeline performs unusually well on certain test wells, in some cases even outperforming
+the pure temporal GRU baseline that has been trained on past observations of those exact wells.
+This is highly unexpected, since the GP interpolation to unmonitored locations should perform
+substantially worse than a model trained directly on the well's own history. Further investigation
+shows that these high-performing test wells have training-set neighbors at identical or
+near-identical surface coordinates. Therefore, the GP effectively produces the prediction for
+the unmonitored location by just copying the value of the co-located training well, not by
+generalizing or interpolating spatially in any meaningful sense. This skews overall performance
+metrics, since they are dominated (and unfairly improved) by those trivially easy cases rather
+than by the model's ability to interpolate to genuinely unseen locations.
+
+On the other hand, co-located boreholes can also hurt performance when their GWL values differ substantially. In that case, the GP still copies the value from the co-located training 
+well (since the coordinates are identical), but the copied value can be a poor match for a well
+in a completely different depth, which makes performance worse rather than better. Since there is 
+no clean depth threshold that separates the cases where interpolation is too easy from the ones
+where it is too hard, the cleanest solution is to put all co-located wells into the
+training set. This makes sure all measurements are kept and we are not discarding valuable data.
+
+More specifically, the split generation algorithm identifies all wells within 8\,m of at least
+one other well (308 wells in total) and puts them permanently into the training set. These
+wells are never eligible to appear in the test set.
+This approach keeps all 1{,}040 wells in the dataset,
+so no measurements are discarded, while guaranteeing that every well in the test set poses a genuine
+spatial interpolation challenge. Preliminary experiments show that excluding wells by aquifer
+type hurts performance, suggesting that having more training data matters more than having
+perfectly clean data.
+
+The remaining 732 wells make up the eligible test pool from which the random 90/10 split is drawn
+(splitting all 1{,}040 wells randomly would not give meaningful results, because of the co-located wells).
+This yields 104 test wells and 936 training wells per split seed.
+
+% ============================================================
+\section{Chapter Summary}
+% ============================================================
+
+This chapter describes the Brandenburg groundwater dataset: 1{,}040 wells with weekly GWL observations starting between 1951 and 2008 and ending in 2024, five dynamic meteorological features from HYRAS~5.0, and 40 static hydrogeological features per well (of which 35 are used as GRU inputs; see \cref{app:features}). The large ratio of spatial to temporal GWL variation (roughly 83:1 in median ranges) motivates the two-stage pipeline design (\cref{sec:design_overview}), and the 308 co-located wells are forced into training to prevent trivially easy test cases. The uneven spatial distribution of wells means test wells in different split seeds vary widely in their isolation from the nearest training neighbor. \Cref{ch:methods} presents the full methodological framework built on this dataset.

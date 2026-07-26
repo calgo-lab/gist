@@ -1,0 +1,105 @@
+% !TEX root = ../main.tex
+\chapter{Static Feature Definitions and Model Assignments}
+\label{app:features}
+
+\Cref{tab:features_gru,tab:features_gp,tab:features_unused} list all 40 static features
+available in the Brandenburg groundwater dataset, grouped by their role in the modelling
+pipeline. \textbf{GRU} features are passed as \texttt{x\_static} to the temporal model.
+\textbf{GP} features are used as spatial covariates in the Gaussian Process kernel.
+Features marked \textbf{---} are available in the dataset but are not primary model inputs
+in the main experiments.
+
+\begin{longtable}{p{5.5cm}p{2.5cm}p{5cm}}
+\caption{GRU static inputs (35 features). All are standardized before training. The three hydrogeological zone indicators are additionally used as GP spatial inputs (\cref{tab:features_gp}).}
+\label{tab:features_gru} \\
+\toprule
+\textbf{Column name} & \textbf{Group} & \textbf{Description} \\
+\midrule
+\endfirsthead
+\multicolumn{3}{l}{\small\itshape (continued from previous page)} \\
+\toprule
+\textbf{Column name} & \textbf{Group} & \textbf{Description} \\
+\midrule
+\endhead
+\midrule
+\multicolumn{3}{r}{\small\itshape (continued on next page)} \\
+\endfoot
+\bottomrule
+\endlastfoot
+\path{corine_1000_fractions_corineclccode_111} & Land use & Continuous urban fabric fraction \\
+\path{corine_1000_fractions_corineclccode_112} & Land use & Discontinuous urban fabric fraction \\
+\path{corine_1000_fractions_corineclccode_121} & Land use & Industrial/commercial units fraction \\
+\path{corine_1000_fractions_corineclccode_131} & Land use & Mineral extraction sites fraction \\
+\path{corine_1000_fractions_corineclccode_141} & Land use & Green urban areas fraction \\
+\path{corine_1000_fractions_corineclccode_211} & Land use & Non-irrigated arable land fraction \\
+\path{corine_1000_fractions_corineclccode_231} & Land use & Pastures fraction \\
+\path{corine_1000_fractions_corineclccode_242} & Land use & Complex cultivation patterns fraction \\
+\path{corine_1000_fractions_corineclccode_311} & Land use & Broad-leaved forest fraction \\
+\path{corine_1000_fractions_corineclccode_312} & Land use & Coniferous forest fraction \\
+\path{corine_1000_fractions_corineclccode_313} & Land use & Mixed forest fraction \\
+\path{corine_1000_fractions_corineclccode_321} & Land use & Natural grasslands fraction \\
+\path{corine_1000_fractions_corineclccode_322} & Land use & Moors and heathland fraction \\
+\path{corine_1000_fractions_corineclccode_411} & Land use & Inland marshes fraction \\
+\path{corine_1000_fractions_corineclccode_511} & Land use & Water courses fraction \\
+\path{corine_1000_fractions_corineclccode_512} & Land use & Water bodies fraction \\
+\midrule
+\path{TWI_dgm50_r1000m}               & Terrain & Topographic Wetness Index (1\,km buffer) \\
+\path{gok}                             & Terrain & Surface elevation (m\,a.s.l.) \\
+\midrule
+\path{eumohp_1000_mean_dsd1}          & EU-MOHP & Drainage system density, Strahler-1 watercourses \\
+\path{eumohp_1000_mean_lp1}           & EU-MOHP & Linear permeability, Strahler-1 \\
+\path{eumohp_1000_mean_sd1}           & EU-MOHP & Stream density, Strahler-1 \\
+\midrule
+\path{amatulli_1000_mean_entgeom10kment}   & Geomorpho90m & Geomorphological entropy (10\,km scale) \\
+\path{amatulli_1000_mean_shannongeom10kmsha} & Geomorpho90m & Shannon entropy of terrain (10\,km scale) \\
+\path{amatulli_1000_mean_unigeom10kmuni}   & Geomorpho90m & Terrain uniformity (10\,km scale) \\
+\midrule
+\path{huek250_1000_fractions_kf_9}   & HÜK250 & Hydraulic conductivity class 9 fraction \\
+\path{huek250_1000_fractions_kf_10}  & HÜK250 & Hydraulic conductivity class 10 fraction \\
+\path{huek250_1000_fractions_kf_11}  & HÜK250 & Hydraulic conductivity class 11 fraction \\
+\midrule
+\path{gwn1000_1000_mean_recharge}     & GW recharge & Mean annual GW recharge, source 1 (mm/yr) \\
+\path{GW_recharge_r1000m}             & GW recharge & Mean annual GW recharge, source 2 (mm/yr) \\
+\midrule
+\path{parde_seasonality}              & Seasonality & Pardé seasonality coefficient (per-well time series) \\
+\path{gw_gespannt_bin}                & Confinement & Aquifer confinement binary (1\,=\,confined) \\
+\path{siwa_verweilzeit_j}             & Residence time & GW residence time in years (ordinal: 0,1,3,10,30,50) \\
+\midrule
+\path{hydroraum_Speisungsgebiete}     & Hydro zone & Recharge zone indicator (binary) \\
+\path{hydroraum_Transitgebiete}       & Hydro zone & Transit zone indicator (binary) \\
+\path{hydroraum_Entlastungsgebiete}   & Hydro zone & Discharge zone indicator (binary) \\
+\end{longtable}
+
+\begin{table}[htbp]
+\centering
+\caption{GP spatial inputs (3 features). One-hot encoding of hydrogeological zone (\texttt{hydroraum}); also included in the GRU feature set above.}
+\label{tab:features_gp}
+\small
+\begin{tabular}{p{5.5cm}p{2.5cm}p{5cm}}
+\toprule
+\textbf{Column name} & \textbf{Group} & \textbf{Description} \\
+\midrule
+\path{hydroraum_Speisungsgebiete}     & Hydro zone & Recharge zone indicator (binary) \\
+\path{hydroraum_Transitgebiete}       & Hydro zone & Transit zone indicator (binary) \\
+\path{hydroraum_Entlastungsgebiete}   & Hydro zone & Discharge zone indicator (binary) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Features available in the dataset but not used as primary model inputs.}
+\label{tab:features_unused}
+\small
+\begin{tabular}{p{5.5cm}p{2.5cm}p{5cm}}
+\toprule
+\textbf{Column name} & \textbf{Group} & \textbf{Description} \\
+\midrule
+\path{gwlk}     & Aquifer complex & Glacial aquifer complex (3 classes: \emph{Grundwasserleiterkomplexe}) \\
+\path{fok}      & Screen depth & Well screen top depth, \emph{Filteroberkante} ($\sim$19\% missing) \\
+\path{fuk}      & Screen depth & Well screen bottom depth, \emph{Filterunterkante} ($\sim$19\% missing) \\
+\path{acf_class} & ACF & Autocorrelation lag class ($<$6, $<$9, $<$12, $<$20, $<$53, $>$53 weeks); requires historical GWL to compute \\
+\path{gw_gespannt} & Confinement & Raw confinement string; replaced by \path{gw_gespannt_bin} \\
+\bottomrule
+\end{tabular}
+\end{table}
