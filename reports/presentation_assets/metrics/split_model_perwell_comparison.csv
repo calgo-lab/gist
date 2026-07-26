@@ -1,7 +1,0 @@
-Split,Model,Holdout wells,RMSE,nRMSE,NSE
-Random 90/10,Decoupled GRU+GP,104,0.7073,2.8395,-12.8768
-Random 90/10,Joint GRU+GP,104,0.7355,3.4881,-23.2880
-Clustered 90/10 (spf0p9),Decoupled GRU+GP,95,0.6199,3.2541,-13.5550
-Clustered 90/10 (spf0p9),Joint GRU+GP,95,0.6348,2.8646,-11.8094
-Max-distance 90/10,Decoupled GRU+GP,104,0.6483,3.1463,-12.4308
-Max-distance*,Joint GRU+GP,52,0.4927,2.2675,-6.3735
