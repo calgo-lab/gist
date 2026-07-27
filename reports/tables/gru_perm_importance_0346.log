@@ -1,0 +1,44 @@
+Loading model from /storage/gwl-interpolation/outputs/GRU_FCOV/GRU_FCOV_0346
+Device: cuda
+/storage/gwl-interpolation/src/analysis/gru_permutation_importance.py:164: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  checkpoint = torch.load(run_dir / "model.pt", map_location=device)
+Loading dataset...
+Static features (31): ['eumohp_1000_mean_dsd1', 'eumohp_1000_mean_lp1', 'eumohp_1000_mean_sd1', 'gwn1000_1000_mean_recharge', 'corine_1000_fractions_corineclccode_211', 'corine_1000_fractions_corineclccode_231', 'corine_1000_fractions_corineclccode_311', 'corine_1000_fractions_corineclccode_512', 'corine_1000_fractions_corineclccode_112', 'corine_1000_fractions_corineclccode_313', 'corine_1000_fractions_corineclccode_131', 'corine_1000_fractions_corineclccode_312', 'corine_1000_fractions_corineclccode_121', 'corine_1000_fractions_corineclccode_322', 'corine_1000_fractions_corineclccode_111', 'corine_1000_fractions_corineclccode_411', 'corine_1000_fractions_corineclccode_321', 'corine_1000_fractions_corineclccode_511', 'corine_1000_fractions_corineclccode_141', 'corine_1000_fractions_corineclccode_242', 'amatulli_1000_mean_entgeom10kment', 'amatulli_1000_mean_shannongeom10kmsha', 'amatulli_1000_mean_unigeom10kmuni', 'huek250_1000_fractions_kf_11', 'huek250_1000_fractions_kf_9', 'huek250_1000_fractions_kf_10', 'gok', 'TWI_dgm50_r1000m', 'GW_recharge_r1000m', 'parde_seasonality', 'gw_gespannt_bin']
+Building windows (temporal test period: post-2020)...
+Test windows: 240240, wells: 1040
+Running baseline inference...
+Baseline nRMSE_pw: 0.0467
+All-zeroed nRMSE_pw: 0.0771  (delta=+0.0303)
+  [ 1/31] eumohp_1000_mean_dsd1: delta=+0.0017 (+3.5%)
+  [ 2/31] eumohp_1000_mean_lp1: delta=+0.0029 (+6.2%)
+  [ 3/31] eumohp_1000_mean_sd1: delta=+0.0021 (+4.6%)
+  [ 4/31] gwn1000_1000_mean_recharge: delta=+0.0024 (+5.2%)
+  [ 5/31] corine_1000_fractions_corineclccode_211: delta=+0.0018 (+3.9%)
+  [ 6/31] corine_1000_fractions_corineclccode_231: delta=+0.0040 (+8.6%)
+  [ 7/31] corine_1000_fractions_corineclccode_311: delta=+0.0013 (+2.7%)
+  [ 8/31] corine_1000_fractions_corineclccode_512: delta=+0.0017 (+3.5%)
+  [ 9/31] corine_1000_fractions_corineclccode_112: delta=+0.0020 (+4.3%)
+  [10/31] corine_1000_fractions_corineclccode_313: delta=+0.0013 (+2.8%)
+  [11/31] corine_1000_fractions_corineclccode_131: delta=+0.0004 (+0.9%)
+  [12/31] corine_1000_fractions_corineclccode_312: delta=+0.0037 (+8.0%)
+  [13/31] corine_1000_fractions_corineclccode_121: delta=+0.0012 (+2.5%)
+  [14/31] corine_1000_fractions_corineclccode_322: delta=+0.0010 (+2.1%)
+  [15/31] corine_1000_fractions_corineclccode_111: delta=+0.0007 (+1.5%)
+  [16/31] corine_1000_fractions_corineclccode_411: delta=+0.0008 (+1.7%)
+  [17/31] corine_1000_fractions_corineclccode_321: delta=+0.0005 (+1.1%)
+  [18/31] corine_1000_fractions_corineclccode_511: delta=+0.0057 (+12.3%)
+  [19/31] corine_1000_fractions_corineclccode_141: delta=+0.0014 (+2.9%)
+  [20/31] corine_1000_fractions_corineclccode_242: delta=+0.0004 (+0.9%)
+  [21/31] amatulli_1000_mean_entgeom10kment: delta=+0.0038 (+8.1%)
+  [22/31] amatulli_1000_mean_shannongeom10kmsha: delta=+0.0023 (+5.0%)
+  [23/31] amatulli_1000_mean_unigeom10kmuni: delta=+0.0022 (+4.6%)
+  [24/31] huek250_1000_fractions_kf_11: delta=+0.0004 (+0.9%)
+  [25/31] huek250_1000_fractions_kf_9: delta=+0.0005 (+1.1%)
+  [26/31] huek250_1000_fractions_kf_10: delta=+0.0004 (+0.9%)
+  [27/31] gok: delta=+0.0048 (+10.2%)
+  [28/31] TWI_dgm50_r1000m: delta=+0.0049 (+10.5%)
+  [29/31] GW_recharge_r1000m: delta=+0.0039 (+8.3%)
+  [30/31] parde_seasonality: delta=+0.0221 (+47.3%)
+  [31/31] gw_gespannt_bin: delta=+0.0028 (+6.0%)
+
+Results saved to /storage/gwl-interpolation/reports/feature_importance/gru_perm_importance_0346.md

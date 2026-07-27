@@ -1,0 +1,81 @@
+Static features (41): ['eumohp_1000_mean_dsd1', 'eumohp_1000_mean_lp1', 'eumohp_1000_mean_sd1', 'gwn1000_1000_mean_recharge', 'corine_1000_fractions_corineclccode_211', 'corine_1000_fractions_corineclccode_231', 'corine_1000_fractions_corineclccode_311', 'corine_1000_fractions_corineclccode_512', 'corine_1000_fractions_corineclccode_112', 'corine_1000_fractions_corineclccode_313', 'corine_1000_fractions_corineclccode_131', 'corine_1000_fractions_corineclccode_312', 'corine_1000_fractions_corineclccode_121', 'corine_1000_fractions_corineclccode_322', 'corine_1000_fractions_corineclccode_111', 'corine_1000_fractions_corineclccode_411', 'corine_1000_fractions_corineclccode_321', 'corine_1000_fractions_corineclccode_511', 'corine_1000_fractions_corineclccode_141', 'corine_1000_fractions_corineclccode_242', 'amatulli_1000_mean_entgeom10kment', 'amatulli_1000_mean_shannongeom10kmsha', 'amatulli_1000_mean_unigeom10kmuni', 'huek250_1000_fractions_kf_11', 'huek250_1000_fractions_kf_9', 'huek250_1000_fractions_kf_10', 'gok', 'fok', 'fuk', 'siwa_verweilzeit_j', 'TWI_dgm50_r1000m', 'GW_recharge_r1000m', 'parde_seasonality', 'gw_gespannt_bin', 'hydroraum_Entlastungsgebiete', 'hydroraum_Transitgebiete', 'hydroraum_Speisungsgebiete', 'gwlk_1', 'gwlk_2', 'gwlk_3', 'acf_class_ord']
+epoch=1 train_loss=0.278039 val_loss=0.207469 time=40.7s
+epoch=2 train_loss=0.156346 val_loss=0.121332 time=31.4s
+epoch=3 train_loss=0.124219 val_loss=0.107414 time=31.3s
+epoch=4 train_loss=0.115979 val_loss=0.106113 time=31.4s
+epoch=5 train_loss=0.110675 val_loss=0.102890 time=31.3s
+epoch=6 train_loss=0.106961 val_loss=0.101088 time=31.5s
+epoch=7 train_loss=0.103627 val_loss=0.102127 time=31.4s
+epoch=8 train_loss=0.100993 val_loss=0.101206 time=31.3s
+epoch=9 train_loss=0.098460 val_loss=0.096695 time=31.3s
+epoch=10 train_loss=0.096022 val_loss=0.099748 time=31.3s
+epoch=11 train_loss=0.093718 val_loss=0.098116 time=31.5s
+epoch=12 train_loss=0.091216 val_loss=0.097817 time=31.4s
+epoch=13 train_loss=0.088685 val_loss=0.097854 time=31.6s
+epoch=14 train_loss=0.086072 val_loss=0.099913 time=31.4s
+Run ID: 1646  (sig: in52_out16_ep50_bs4096_seed40_gru_39feat_coloc_rand_f95_ss42)
+
+real	9m14.836s
+user	8m53.748s
+sys	0m19.478s
+Loading model from /storage/gwl-interpolation/outputs/GRU_FCOV/GRU_FCOV_1646
+Device: cuda
+/storage/gwl-interpolation/src/analysis/gru_permutation_importance.py:165: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  checkpoint = torch.load(run_dir / "model.pt", map_location=device)
+Loading dataset...
+Static features (41): ['eumohp_1000_mean_dsd1', 'eumohp_1000_mean_lp1', 'eumohp_1000_mean_sd1', 'gwn1000_1000_mean_recharge', 'corine_1000_fractions_corineclccode_211', 'corine_1000_fractions_corineclccode_231', 'corine_1000_fractions_corineclccode_311', 'corine_1000_fractions_corineclccode_512', 'corine_1000_fractions_corineclccode_112', 'corine_1000_fractions_corineclccode_313', 'corine_1000_fractions_corineclccode_131', 'corine_1000_fractions_corineclccode_312', 'corine_1000_fractions_corineclccode_121', 'corine_1000_fractions_corineclccode_322', 'corine_1000_fractions_corineclccode_111', 'corine_1000_fractions_corineclccode_411', 'corine_1000_fractions_corineclccode_321', 'corine_1000_fractions_corineclccode_511', 'corine_1000_fractions_corineclccode_141', 'corine_1000_fractions_corineclccode_242', 'amatulli_1000_mean_entgeom10kment', 'amatulli_1000_mean_shannongeom10kmsha', 'amatulli_1000_mean_unigeom10kmuni', 'huek250_1000_fractions_kf_11', 'huek250_1000_fractions_kf_9', 'huek250_1000_fractions_kf_10', 'gok', 'fok', 'fuk', 'siwa_verweilzeit_j', 'TWI_dgm50_r1000m', 'GW_recharge_r1000m', 'parde_seasonality', 'gw_gespannt_bin', 'gwlk_1', 'gwlk_2', 'gwlk_3', 'acf_class_ord', 'hydroraum_Entlastungsgebiete', 'hydroraum_Transitgebiete', 'hydroraum_Speisungsgebiete']
+Building windows (temporal test period: post-2020)...
+Test windows: 228228, wells: 988
+Running baseline inference...
+Baseline nRMSE_pw: 0.0830
+All-zeroed nRMSE_pw: 0.0840  (delta=+0.0010)
+  [ 1/41] eumohp_1000_mean_dsd1: delta=+0.0006 (+0.7%)
+  [ 2/41] eumohp_1000_mean_lp1: delta=+0.0013 (+1.5%)
+  [ 3/41] eumohp_1000_mean_sd1: delta=+0.0008 (+0.9%)
+  [ 4/41] gwn1000_1000_mean_recharge: delta=+0.0012 (+1.4%)
+  [ 5/41] corine_1000_fractions_corineclccode_211: delta=+0.0014 (+1.7%)
+  [ 6/41] corine_1000_fractions_corineclccode_231: delta=+0.0007 (+0.8%)
+  [ 7/41] corine_1000_fractions_corineclccode_311: delta=+0.0011 (+1.3%)
+  [ 8/41] corine_1000_fractions_corineclccode_512: delta=+0.0010 (+1.2%)
+  [ 9/41] corine_1000_fractions_corineclccode_112: delta=+0.0019 (+2.3%)
+  [10/41] corine_1000_fractions_corineclccode_313: delta=+0.0009 (+1.1%)
+  [11/41] corine_1000_fractions_corineclccode_131: delta=+0.0002 (+0.2%)
+  [12/41] corine_1000_fractions_corineclccode_312: delta=+0.0016 (+1.9%)
+  [13/41] corine_1000_fractions_corineclccode_121: delta=-0.0002 (-0.2%)
+  [14/41] corine_1000_fractions_corineclccode_322: delta=+0.0005 (+0.6%)
+  [15/41] corine_1000_fractions_corineclccode_111: delta=+0.0003 (+0.3%)
+  [16/41] corine_1000_fractions_corineclccode_411: delta=-0.0000 (-0.0%)
+  [17/41] corine_1000_fractions_corineclccode_321: delta=+0.0002 (+0.3%)
+  [18/41] corine_1000_fractions_corineclccode_511: delta=+0.0001 (+0.1%)
+  [19/41] corine_1000_fractions_corineclccode_141: delta=+0.0003 (+0.4%)
+  [20/41] corine_1000_fractions_corineclccode_242: delta=-0.0000 (-0.1%)
+  [21/41] amatulli_1000_mean_entgeom10kment: delta=+0.0020 (+2.5%)
+  [22/41] amatulli_1000_mean_shannongeom10kmsha: delta=+0.0008 (+1.0%)
+  [23/41] amatulli_1000_mean_unigeom10kmuni: delta=+0.0018 (+2.2%)
+  [24/41] huek250_1000_fractions_kf_11: delta=+0.0002 (+0.3%)
+  [25/41] huek250_1000_fractions_kf_9: delta=+0.0005 (+0.6%)
+  [26/41] huek250_1000_fractions_kf_10: delta=-0.0000 (-0.0%)
+  [27/41] gok: delta=+0.0009 (+1.0%)
+  [28/41] fok: delta=-0.0002 (-0.2%)
+  [29/41] fuk: delta=+0.0011 (+1.3%)
+  [30/41] siwa_verweilzeit_j: delta=+0.0011 (+1.4%)
+  [31/41] TWI_dgm50_r1000m: delta=+0.0008 (+1.0%)
+  [32/41] GW_recharge_r1000m: delta=+0.0020 (+2.4%)
+  [33/41] parde_seasonality: delta=+0.0073 (+8.8%)
+  [34/41] gw_gespannt_bin: delta=+0.0009 (+1.0%)
+  [35/41] gwlk_1: delta=+0.0005 (+0.6%)
+  [36/41] gwlk_2: delta=+0.0009 (+1.1%)
+  [37/41] gwlk_3: delta=-0.0001 (-0.1%)
+  [38/41] acf_class_ord: delta=+0.0062 (+7.5%)
+  [39/41] hydroraum_Entlastungsgebiete: delta=+0.0023 (+2.8%)
+  [40/41] hydroraum_Transitgebiete: delta=+0.0024 (+2.9%)
+  [41/41] hydroraum_Speisungsgebiete: delta=+0.0003 (+0.4%)
+
+--- Dynamic feature permutation (5 features) ---
+  [1/5] tas_5km: delta=+0.0346 (+41.7%)
+  [2/5] hurs_5km: delta=+0.0056 (+6.7%)
+  [3/5] pr_5km: delta=+0.0224 (+27.0%)
+  [4/5] tag_sin: delta=+0.0034 (+4.1%)
+  [5/5] tag_cos: delta=+0.0093 (+11.3%)
+
+Results saved to /storage/gwl-interpolation/reports/feature_importance/gru_perm_importance_1646.md
