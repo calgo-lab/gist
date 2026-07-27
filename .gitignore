@@ -15,6 +15,7 @@ experiments/
 
 logs/
 **/logs/
+*.log
 
 # Large binary model/data files
 *.pt
