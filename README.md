@@ -40,8 +40,7 @@ relative to the working directory, so if you cd into a subfolder first they just
 
 ### Data
 
-The dataset isnt in here, its way too big. You put the paths into `configs/data.yaml`, and
-there's a small preview at `data/head_preview.csv` so you can atleast see what it looks like.
+The dataset isnt in here. You put the paths into `configs/data.yaml`.
 
 Columns you need: `id`, `datum`, `gws`, `tas_5km`, `hurs_5km`, `pr_5km`, `tag_sin`,
 `tag_cos`, `x_25833`, `y_25833`

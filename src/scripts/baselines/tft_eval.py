@@ -12,7 +12,7 @@ from sklearn.preprocessing import StandardScaler
 from darts import TimeSeries
 from darts.dataprocessing.transformers import Scaler, StaticCovariatesTransformer
 from darts.models import TFTModel
-from libs.utils import get_metrics
+from libs.metrics import get_metrics
 from libs.spatial_split import load_split, resolve_split_path
 from libs.run_sig_tft import resolve_tft_run_sig
 import torch, yaml
@@ -341,7 +341,6 @@ if __name__ == "__main__":
                         prediction_df=pred_final,
                         real_col='gws', forecast_col='gws_forecast', id_col='id',
                         metrics_subset=['nRMSE','RMSE','NSE','KGE','rMBE','MAE'],
-                        lower_quantile=None, upper_quantile=None,
                         train_means=train_means,
                     )
 

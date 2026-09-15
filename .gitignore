@@ -29,3 +29,10 @@ reports/presentation_assets/tmp/
 *.egg-info/
 dist/
 reports/comparison/
+# data and third-party results
+data/head_preview.csv
+data/sample.csv
+reports/dataset/coverage_by_well.csv
+reports/tables/perwell_coloc_extract.csv
+reports/tables/gp_wins_analysis.csv
+reports/metrics/tft/tft_metrics_summary*.csv
